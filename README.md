@@ -13,22 +13,17 @@
 
 ## 支持的镜像标签
 
-### 按版本和基础镜像
-- `latest` - 最新版本 (Alpine)
-- `latest-alpine` - 最新版本 Alpine
-- `latest-debian` - 最新版本 Debian
-- `1.24.0` - 指定版本 (Alpine)
-- `1.24.0-alpine` - 指定版本 Alpine
-- `1.24.0-debian` - 指定版本 Debian
+所有标签都支持多架构，Docker 会自动拉取适合你系统的架构版本。
 
-### 按架构
-- `latest-alpine-x86_64`
-- `latest-alpine-aarch64`
-- `latest-alpine-arm`
-- `latest-alpine-i686`
-- `latest-debian-x86_64`
-- `latest-debian-aarch64`
-- `latest-debian-arm`
+### 标签说明
+- `latest` / `latest-debian` - 最新版本 Debian (多架构: amd64, arm64, armv7)
+- `latest-alpine` - 最新版本 Alpine (多架构: amd64, arm64, armv7, 386)
+- `1.24.0` / `1.24.0-debian` - 指定版本 Debian (多架构)
+- `1.24.0-alpine` - 指定版本 Alpine (多架构)
+
+### 支持的架构
+- **Debian**: `linux/amd64`, `linux/arm64`, `linux/arm/v7`
+- **Alpine**: `linux/amd64`, `linux/arm64`, `linux/arm/v7`, `linux/386`
 
 ## 快速开始
 
@@ -258,13 +253,15 @@ docker run -d \
 
 | 基础镜像 | 架构 | 大小（约） |
 |---------|------|-----------|
+| Debian | amd64 | ~45MB |
+| Debian | arm64 | ~43MB |
+| Debian | armv7 | ~41MB |
 | Alpine | amd64 | ~15MB |
 | Alpine | arm64 | ~14MB |
 | Alpine | armv7 | ~13MB |
 | Alpine | 386 | ~14MB |
-| Debian | amd64 | ~45MB |
-| Debian | arm64 | ~43MB |
-| Debian | armv7 | ~41MB |
+
+**推荐使用 Alpine 镜像**以获得更小的体积。
 
 ## 许可证
 
