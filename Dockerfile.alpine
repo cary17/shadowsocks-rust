@@ -1,18 +1,19 @@
 FROM alpine:latest
 
 ARG VERSION
-ARG ARCH
+ARG TARGETARCH
+ARG TARGETVARIANT
 
 RUN apk add --no-cache ca-certificates wget jq
 
 WORKDIR /tmp
 
-RUN case "${ARCH}" in \
-    "x86_64") SS_ARCH="x86_64-unknown-linux-musl" ;; \
-    "aarch64") SS_ARCH="aarch64-unknown-linux-musl" ;; \
-    "arm") SS_ARCH="armv7-unknown-linux-musleabihf" ;; \
-    "i686") SS_ARCH="i686-unknown-linux-musl" ;; \
-    *) echo "Unsupported architecture: ${ARCH}" && exit 1 ;; \
+RUN case "${TARGETARCH}${TARGETVARIANT}" in \
+    "amd64") SS_ARCH="x86_64-unknown-linux-musl" ;; \
+    "arm64") SS_ARCH="aarch64-unknown-linux-musl" ;; \
+    "armv7") SS_ARCH="armv7-unknown-linux-musleabihf" ;; \
+    "386") SS_ARCH="i686-unknown-linux-musl" ;; \
+    *) echo "Unsupported architecture: ${TARGETARCH}${TARGETVARIANT}" && exit 1 ;; \
     esac && \
     DOWNLOAD_URL="https://github.com/shadowsocks/shadowsocks-rust/releases/download/v${VERSION}/shadowsocks-v${VERSION}.${SS_ARCH}.tar.xz" && \
     echo "Downloading from: ${DOWNLOAD_URL}" && \
