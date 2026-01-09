@@ -36,7 +36,7 @@ docker run -d \
   -p 8388:8388/udp \
   -v /path/to/config.json:/etc/shadowsocks-rust/config.json:ro \
   --restart unless-stopped \
-  ghcr.io/your-username/shadowsocks-rust:latest
+  ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
 配置文件示例 (`config.json`):
@@ -72,7 +72,7 @@ docker run -d \
   -e SS_METHOD="2022-blake3-aes-128-gcm" \
   -e SS_MODE="tcp_and_udp" \
   --restart unless-stopped \
-  ghcr.io/your-username/shadowsocks-rust:latest
+  ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
 ### 使用环境变量 (多服务器)
@@ -94,7 +94,7 @@ docker run -d \
   -e SS_OUTBOUND_BIND_INTERFACE_2="wg0" \
   -e SS_MODE="tcp_and_udp" \
   --restart unless-stopped \
-  ghcr.io/your-username/shadowsocks-rust:latest
+  ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
 ## Docker Compose 示例
@@ -106,7 +106,7 @@ version: '3.8'
 
 services:
   shadowsocks:
-    image: ghcr.io/your-username/shadowsocks-rust:latest
+    image: ghcr.io/cary17/shadowsocks-rust:latest
     container_name: shadowsocks
     ports:
       - "8388:8388/tcp"
@@ -127,7 +127,7 @@ version: '3.8'
 
 services:
   shadowsocks:
-    image: ghcr.io/your-username/shadowsocks-rust:latest
+    image: ghcr.io/cary17/shadowsocks-rust:latest
     container_name: shadowsocks
     ports:
       - "8388:8388/tcp"
@@ -144,7 +144,7 @@ version: '3.8'
 
 services:
   shadowsocks:
-    image: ghcr.io/your-username/shadowsocks-rust:latest
+    image: ghcr.io/cary17/shadowsocks-rust:latest
     container_name: shadowsocks
     ports:
       - "34995:34995/tcp"
