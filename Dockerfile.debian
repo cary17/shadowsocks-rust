@@ -18,7 +18,7 @@ WORKDIR /tmp
 RUN case "${ARCH}" in \
     "x86_64") SS_ARCH="x86_64-unknown-linux-gnu" ;; \
     "aarch64") SS_ARCH="aarch64-unknown-linux-gnu" ;; \
-    "arm") SS_ARCH="arm-unknown-linux-gnu" ;; \
+    "arm") SS_ARCH="armv7-unknown-linux-gnueabihf" ;; \
     *) echo "Unsupported architecture: ${ARCH}" && exit 1 ;; \
     esac && \
     DOWNLOAD_URL="https://github.com/shadowsocks/shadowsocks-rust/releases/download/v${VERSION}/shadowsocks-v${VERSION}.${SS_ARCH}.tar.xz" && \
