@@ -33,25 +33,34 @@ jobs:
       - name: Check for new release
         id: check
         run: |
-          # 获取最新版本
+          # 获取 shadowsocks-rust 最新版本
           LATEST_VERSION=$(curl -s https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest | jq -r .tag_name)
-          echo "Latest version: $LATEST_VERSION"
+          echo "Latest shadowsocks-rust version: $LATEST_VERSION"
           
-          # 获取当前已构建的版本
-          if [ -f "VERSION" ]; then
-            CURRENT_VERSION=$(cat VERSION)
-          else
-            CURRENT_VERSION=""
+          # 获取 GHCR 已发布的最新版本
+          GHCR_LATEST=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://ghcr.io/v2/${{ github.repository_owner }}/shadowsocks-rust/tags/list" | \
+            jq -r '.tags[]' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || echo "")
+          
+          if [ -z "$GHCR_LATEST" ]; then
+            # 如果 GHCR 没有版本，检查 VERSION 文件
+            if [ -f "VERSION" ]; then
+              GHCR_LATEST=$(cat VERSION)
+            else
+              GHCR_LATEST=""
+            fi
           fi
-          echo "Current version: $CURRENT_VERSION"
+          
+          echo "GHCR latest version: $GHCR_LATEST"
           
           # 判断是否需要构建
-          if [ "${{ github.event.inputs.force_build }}" = "true" ] || [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
+          if [ "${{ github.event.inputs.force_build }}" = "true" ] || [ "$LATEST_VERSION" != "$GHCR_LATEST" ]; then
             echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-            echo "version_tag=${LATEST_VERSION#v}" >> $GITHUB_OUTPUT
             echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "New version detected, will build: $LATEST_VERSION"
           else
             echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "No new version, skipping build"
           fi
 
       - name: Update VERSION file
@@ -103,16 +112,16 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: |
-            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.version_tag }}
-            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.version_tag }}-debian
+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}
+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}-debian
             ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-debian
-            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.version_tag }}
-            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.version_tag }}-debian
+            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}
+            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}-debian
             ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-debian
           build-args: |
-            VERSION=${{ needs.check-version.outputs.version_tag }}
+            VERSION=${{ needs.check-version.outputs.new_version }}
             DEBIAN_VERSION=${{ github.event.inputs.debian_version || '12' }}
           cache-from: type=gha,scope=debian
           cache-to: type=gha,mode=max,scope=debian
@@ -156,11 +165,11 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/386
           push: true
           tags: |
-            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.version_tag }}-alpine
+            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}-alpine
             ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-alpine
-            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.version_tag }}-alpine
+            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}-alpine
             ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-alpine
           build-args: |
-            VERSION=${{ needs.check-version.outputs.version_tag }}
+            VERSION=${{ needs.check-version.outputs.new_version }}
           cache-from: type=gha,scope=alpine
           cache-to: type=gha,mode=max,scope=alpine
