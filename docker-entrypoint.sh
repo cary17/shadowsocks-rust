@@ -16,10 +16,8 @@ _int() {
   exit 0
 }
 
-# === 这里是唯一修改的地方 ===
-trap '_term' TERM
-trap '_int' INT
-# ============================
+trap _term TERM
+trap _int INT
 
 if [ -z "${SS_ENTRYPOINT_QUIET_LOGS:-}" ]; then
     exec 3>&1
@@ -43,7 +41,7 @@ if [ "$1" = "sslocal" ] || [ "$1" = "ssserver" ] || [ "$1" = "ssmanager" ] || [ 
     else
         echo >&3 "$0: Configuration file found at /etc/shadowsocks-rust/config.json"
     fi
-
+    
     echo >&3 "$0: Ready for start up"
 fi
 
