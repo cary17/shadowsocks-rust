@@ -30,7 +30,5 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/generate-config.
 
 RUN mkdir -p /etc/shadowsocks-rust
 
-EXPOSE 8388/tcp 8388/udp
-
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["ssserver", "-c", "/etc/shadowsocks-rust/config.json"]
