@@ -16,8 +16,7 @@ on:
 
 env:
   GHCR_REGISTRY: ghcr.io
-  DOCKER_REGISTRY: docker.io
-  IMAGE_NAME: ${{ github.repository_owner }}/shadowsocks-rust
+  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/shadowsocks-rust
 
 jobs:
   check-version:
@@ -131,11 +130,36 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
+        if: secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.DOCKER_REGISTRY }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Prepare tags
+        id: tags
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          
+          TAGS="${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}
+          ${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}-debian
+          ${{ env.GHCR_IMAGE }}:latest
+          ${{ env.GHCR_IMAGE }}:latest-debian"
+          
+          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+            TAGS="$TAGS
+            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${{ needs.check-version.outputs.new_version }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${{ needs.check-version.outputs.new_version }}-debian
+            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:latest-debian"
+            echo "Will push to Docker Hub as ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}"
+          else
+            echo "Docker Hub credentials not configured, will only push to GHCR"
+          fi
+          
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAGS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Build and push Debian multi-arch
         uses: docker/build-push-action@v5
@@ -144,15 +168,7 @@ jobs:
           file: ./Dockerfile.debian
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
-          tags: |
-            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}
-            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}-debian
-            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-debian
-            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}
-            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}-debian
-            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-debian
+          tags: ${{ steps.tags.outputs.tags }}
           build-args: |
             VERSION=${{ needs.check-version.outputs.new_version }}
             DEBIAN_VERSION=${{ github.event.inputs.debian_version || '12' }}
@@ -184,11 +200,32 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
+        if: secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.DOCKER_REGISTRY }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Prepare tags
+        id: tags
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          
+          TAGS="${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}-alpine
+          ${{ env.GHCR_IMAGE }}:latest-alpine"
+          
+          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+            TAGS="$TAGS
+            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${{ needs.check-version.outputs.new_version }}-alpine
+            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:latest-alpine"
+            echo "Will push to Docker Hub as ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}"
+          else
+            echo "Docker Hub credentials not configured, will only push to GHCR"
+          fi
+          
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAGS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Build and push Alpine multi-arch
         uses: docker/build-push-action@v5
@@ -197,11 +234,7 @@ jobs:
           file: ./Dockerfile.alpine
           platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/386
           push: true
-          tags: |
-            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}-alpine
-            ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-alpine
-            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.check-version.outputs.new_version }}-alpine
-            ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest-alpine
+          tags: ${{ steps.tags.outputs.tags }}
           build-args: |
             VERSION=${{ needs.check-version.outputs.new_version }}
           cache-from: type=gha,scope=alpine
