@@ -218,30 +218,12 @@ services:
 - `2022-blake3-aes-128-gcm`
 - `2022-blake3-aes-256-gcm`
 - `2022-blake3-chacha20-poly1305`
-
-传统加密方法：
-
-- `aes-128-gcm`
-- `aes-256-gcm`
-- `chacha20-ietf-poly1305`
-
+其他加密方法请查看 [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust) 
 
 
 ### sslocal (客户端)
 
-如需运行客户端，需要准备客户端配置文件挂载：
-
-
-运行客户端：
-
-```bash
-docker run -d \
-  --name ss-local \
-  -p 1080:1080 \
-  -v /path/to/client-config.json:/etc/shadowsocks-rust/config.json:ro \
-  ghcr.io/cary17/shadowsocks-rust:latest \
-  sslocal -c /etc/shadowsocks-rust/config.json
-```
+如需运行客户端，需要准备客户端配置文件挂载。
 
 
 ## 📦 镜像仓库
