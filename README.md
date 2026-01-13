@@ -1,4 +1,4 @@
-# Shadowsocks-Rust Docker Image
+# Shadowsocks-Rust Docker
 
 自动构建 [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust) 的多架构 Docker 镜像（**服务器端**）。
 
