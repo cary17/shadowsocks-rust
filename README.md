@@ -60,7 +60,7 @@ docker run -d \
       "udp_weight": 1.0
     }
   ],
-  #"dns": "8.8.8.8",
+  "dns": "8.8.8.8",
   "mode": "tcp_and_udp",
   "ipv6_first": false,
   "ipv6_only": false
