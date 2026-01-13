@@ -1,25 +1,4 @@
-name: Build and Push Docker Images
-
-on:
-  schedule:
-    - cron: '0 * * * *'  # 每小时整点运行
-  workflow_dispatch:
-    inputs:
-      debian_version:
-        description: 'Debian version'
-        required: false
-        default: '12'
-      force_build:
-        description: 'Force build even if version exists'
-        required: false
-        default: 'false'
-
-env:
-  GHCR_REGISTRY: ghcr.io
-  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/shadowsocks-rust
-
-jobs:
-  check-version:
+check-version:
     runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.check.outputs.new_version }}
@@ -31,16 +10,16 @@ jobs:
           MAX_RETRIES=3
           RETRY_DELAY=5
           
-          # 获取 shadowsocks-rust 最新版本（带重试）
+          # 获取 shadowsocks-rust 最新版本
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i of $MAX_RETRIES: Fetching shadowsocks-rust latest version..."
             LATEST_VERSION=$(curl -s https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest | jq -r .tag_name)
             
-            if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "null" ] && [ "$LATEST_VERSION" != "v0.0.0" ]; then
+            if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "null" ]; then
               echo "Successfully got shadowsocks-rust version: $LATEST_VERSION"
               break
             else
-              echo "Failed to get valid version (got: $LATEST_VERSION), retrying in ${RETRY_DELAY}s..."
+              echo "Failed to get valid version, retrying in ${RETRY_DELAY}s..."
               if [ $i -lt $MAX_RETRIES ]; then
                 sleep $RETRY_DELAY
               else
@@ -50,22 +29,32 @@ jobs:
             fi
           done
           
-          # 获取 GHCR 已发布的最新版本（带重试）
+          # 获取 GHCR 已发布的最新版本
+          GHCR_LATEST=""
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i of $MAX_RETRIES: Fetching GHCR latest version..."
-            GHCR_LATEST=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              "https://ghcr.io/v2/${{ github.repository_owner }}/shadowsocks-rust/tags/list" 2>/dev/null | \
-              jq -r '.tags[]?' 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || echo "")
             
-            if [ $? -eq 0 ]; then
-              echo "Successfully queried GHCR (latest: ${GHCR_LATEST:-none})"
-              break
+            # 尝试获取 GHCR token 并查询
+            TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/shadowsocks-rust:pull" | jq -r '.token // empty')
+            
+            if [ -n "$TOKEN" ]; then
+              GHCR_LATEST=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+                "https://ghcr.io/v2/${{ github.repository_owner }}/shadowsocks-rust/tags/list" | \
+                jq -r '.tags[]? | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))' | sort -V | tail -n1)
+              
+              if [ -n "$GHCR_LATEST" ]; then
+                echo "GHCR has existing version: $GHCR_LATEST"
+                break
+              else
+                echo "No valid versions found in GHCR"
+                break
+              fi
             else
-              echo "Failed to query GHCR, retrying in ${RETRY_DELAY}s..."
+              echo "Failed to get GHCR token, retrying in ${RETRY_DELAY}s..."
               if [ $i -lt $MAX_RETRIES ]; then
                 sleep $RETRY_DELAY
               else
-                echo "Warning: Failed to get GHCR version after $MAX_RETRIES attempts, will proceed with build"
+                echo "Warning: Failed to get GHCR token, will treat as no existing version"
                 GHCR_LATEST=""
                 break
               fi
@@ -90,11 +79,12 @@ jobs:
             GHCR_NUM="${GHCR_LATEST#v}"
             
             # 使用sort -V进行版本号比较
-            HIGHER_VERSION=$(printf "%s\n%s" "$LATEST_NUM" "$GHCR_NUM" | sort -V | tail -n 1)
+            HIGHER_VERSION=$(printf "%s\n%s" "$LATEST_NUM" "$GHCR_NUM" | sort -V | tail -n1)
             
             if [ "$LATEST_NUM" = "$GHCR_NUM" ]; then
               echo "Versions are the same, skipping build"
               echo "should_build=false" >> $GITHUB_OUTPUT
+              echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
             elif [ "$LATEST_NUM" = "$HIGHER_VERSION" ]; then
               echo "New version detected: $LATEST_VERSION > $GHCR_LATEST"
               echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
@@ -102,295 +92,6 @@ jobs:
             else
               echo "GHCR version ($GHCR_LATEST) is newer than latest release ($LATEST_VERSION), skipping build"
               echo "should_build=false" >> $GITHUB_OUTPUT
+              echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
             fi
           fi
-
-  build-debian:
-    needs: check-version
-    if: needs.check-version.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.GHCR_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check Docker Hub credentials
-        id: dockerhub
-        run: |
-          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
-            echo "enabled=true" >> $GITHUB_OUTPUT
-          else
-            echo "enabled=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create Docker Hub repository if not exists
-        if: steps.dockerhub.outputs.enabled == 'true'
-        continue-on-error: true
-        run: |
-          REPO_NAME="${{ github.event.repository.name }}"
-          
-          # 尝试获取仓库信息
-          REPO_EXISTS=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}/")
-          
-          if [ "$REPO_EXISTS" = "404" ]; then
-            echo "Repository does not exist, attempting to create..."
-            
-            # 获取 JWT token
-            TOKEN=$(curl -s -H "Content-Type: application/json" \
-              -X POST \
-              -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' \
-              https://hub.docker.com/v2/users/login/ | jq -r .token)
-            
-            if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
-              # 创建仓库
-              CREATE_RESULT=$(curl -s -w "%{http_code}" -o /tmp/create_result.json \
-                -H "Authorization: JWT ${TOKEN}" \
-                -H "Content-Type: application/json" \
-                -X POST \
-                -d "{\"name\": \"${REPO_NAME}\", \"namespace\": \"${{ secrets.DOCKERHUB_USERNAME }}\", \"description\": \"Auto-built shadowsocks-rust Docker images\", \"is_private\": false}" \
-                https://hub.docker.com/v2/repositories/)
-              
-              if [ "$CREATE_RESULT" = "201" ]; then
-                echo "Repository created successfully"
-              else
-                echo "Failed to create repository, status code: $CREATE_RESULT"
-                echo "Response: $(cat /tmp/create_result.json)"
-                echo "Note: This is expected if using an Access Token instead of password"
-              fi
-            else
-              echo "Failed to get JWT token - this is expected when using Access Token"
-              echo "Access Tokens cannot create repositories, only passwords can"
-            fi
-          else
-            echo "Repository already exists or is accessible"
-          fi
-
-      - name: Log in to Docker Hub
-        if: steps.dockerhub.outputs.enabled == 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Prepare tags
-        id: tags
-        run: |
-          REPO_NAME="${{ github.event.repository.name }}"
-          
-          TAGS="${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}
-          ${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}-debian
-          ${{ env.GHCR_IMAGE }}:latest
-          ${{ env.GHCR_IMAGE }}:latest-debian"
-          
-          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
-            TAGS="$TAGS
-            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${{ needs.check-version.outputs.new_version }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${{ needs.check-version.outputs.new_version }}-debian
-            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:latest-debian"
-            echo "Will push to Docker Hub as ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}"
-          else
-            echo "Docker Hub credentials not configured, will only push to GHCR"
-          fi
-          
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAGS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Build and push Debian multi-arch
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.debian
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '12' }}
-          cache-from: type=gha,scope=debian
-          cache-to: type=gha,mode=max,scope=debian
-        continue-on-error: true
-        id: build-push
-
-      - name: Build and push Debian to GHCR only (fallback)
-        if: steps.build-push.outcome == 'failure'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.debian
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: true
-          tags: |
-            ${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}
-            ${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}-debian
-            ${{ env.GHCR_IMAGE }}:latest
-            ${{ env.GHCR_IMAGE }}:latest-debian
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '12' }}
-          cache-from: type=gha,scope=debian
-          cache-to: type=gha,mode=max,scope=debian
-
-      - name: Notify about Docker Hub push failure
-        if: steps.build-push.outcome == 'failure'
-        run: |
-          echo "::warning::Failed to push to Docker Hub. Image pushed to GHCR only."
-          echo "::warning::Please manually create the repository on Docker Hub: https://hub.docker.com/repository/create"
-
-  build-alpine:
-    needs: check-version
-    if: needs.check-version.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.GHCR_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check Docker Hub credentials
-        id: dockerhub
-        run: |
-          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
-            echo "enabled=true" >> $GITHUB_OUTPUT
-          else
-            echo "enabled=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create Docker Hub repository if not exists
-        if: steps.dockerhub.outputs.enabled == 'true'
-        continue-on-error: true
-        run: |
-          REPO_NAME="${{ github.event.repository.name }}"
-          
-          # 尝试获取仓库信息
-          REPO_EXISTS=$(curl -s -o /dev/null -w "%{http_code}" \
-            "https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}/")
-          
-          if [ "$REPO_EXISTS" = "404" ]; then
-            echo "Repository does not exist, attempting to create..."
-            
-            # 获取 JWT token
-            TOKEN=$(curl -s -H "Content-Type: application/json" \
-              -X POST \
-              -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' \
-              https://hub.docker.com/v2/users/login/ | jq -r .token)
-            
-            if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
-              # 创建仓库
-              CREATE_RESULT=$(curl -s -w "%{http_code}" -o /tmp/create_result.json \
-                -H "Authorization: JWT ${TOKEN}" \
-                -H "Content-Type: application/json" \
-                -X POST \
-                -d "{\"name\": \"${REPO_NAME}\", \"namespace\": \"${{ secrets.DOCKERHUB_USERNAME }}\", \"description\": \"Auto-built shadowsocks-rust Docker images\", \"is_private\": false}" \
-                https://hub.docker.com/v2/repositories/)
-              
-              if [ "$CREATE_RESULT" = "201" ]; then
-                echo "Repository created successfully"
-              else
-                echo "Failed to create repository, status code: $CREATE_RESULT"
-                echo "Response: $(cat /tmp/create_result.json)"
-                echo "Note: This is expected if using an Access Token instead of password"
-              fi
-            else
-              echo "Failed to get JWT token - this is expected when using Access Token"
-              echo "Access Tokens cannot create repositories, only passwords can"
-            fi
-          else
-            echo "Repository already exists or is accessible"
-          fi
-
-      - name: Log in to Docker Hub
-        if: steps.dockerhub.outputs.enabled == 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Prepare tags
-        id: tags
-        run: |
-          REPO_NAME="${{ github.event.repository.name }}"
-          
-          TAGS="${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}-alpine
-          ${{ env.GHCR_IMAGE }}:latest-alpine"
-          
-          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
-            TAGS="$TAGS
-            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${{ needs.check-version.outputs.new_version }}-alpine
-            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:latest-alpine"
-            echo "Will push to Docker Hub as ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}"
-          else
-            echo "Docker Hub credentials not configured, will only push to GHCR"
-          fi
-          
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAGS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Build and push Alpine multi-arch
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.alpine
-          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/386
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-          cache-from: type=gha,scope=alpine
-          cache-to: type=gha,mode=max,scope=alpine
-        continue-on-error: true
-        id: build-push
-
-      - name: Build and push Alpine to GHCR only (fallback)
-        if: steps.build-push.outcome == 'failure'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.alpine
-          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/386
-          push: true
-          tags: |
-            ${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}-alpine
-            ${{ env.GHCR_IMAGE }}:latest-alpine
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-          cache-from: type=gha,scope=alpine
-          cache-to: type=gha,mode=max,scope=alpine
-
-      - name: Notify about Docker Hub push failure
-        if: steps.build-push.outcome == 'failure'
-        run: |
-          echo "::warning::Failed to push to Docker Hub. Image pushed to GHCR only."
-          echo "::warning::Please manually create the repository on Docker Hub: https://hub.docker.com/repository/create"
