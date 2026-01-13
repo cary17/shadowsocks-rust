@@ -1,6 +1,6 @@
 # Shadowsocks-Rust Docker
 
-自动构建 [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust) 的多架构 Docker 镜像（**服务器端**）。
+自动构建 [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust) 的多架构 Docker 镜像。
 
 > **注意**: 本镜像环境变量和配置示例均为服务器端配置。如需运行客户端，请参考[shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust)自行准备配置文件挂载。
 
