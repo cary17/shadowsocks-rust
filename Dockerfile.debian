@@ -34,5 +34,5 @@ COPY generate-config.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/generate-config.sh && \
     mkdir -p /etc/shadowsocks-rust
 
-ENTRYPOINT ["docker-entrypoint.sh"]
+ENTRYPOINT ["entrypoint.sh"]
 CMD ["ssserver", "-c", "/etc/shadowsocks-rust/config.json"]
