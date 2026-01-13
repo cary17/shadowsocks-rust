@@ -4,7 +4,7 @@ ARG VERSION
 ARG TARGETARCH
 ARG TARGETVARIANT
 
-RUN apk add --no-cache ca-certificates wget jq
+RUN apk add --no-cache ca-certificates wget
 
 WORKDIR /tmp
 
@@ -18,7 +18,7 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     VERSION_NUM="${VERSION#v}" && \
     DOWNLOAD_URL="https://github.com/shadowsocks/shadowsocks-rust/releases/download/${VERSION}/shadowsocks-${VERSION}.${SS_ARCH}.tar.xz" && \
     echo "Downloading from: ${DOWNLOAD_URL}" && \
-    wget -O shadowsocks.tar.xz "${DOWNLOAD_URL}" && \
+    wget -q -O shadowsocks.tar.xz "${DOWNLOAD_URL}" && \
     tar -xf shadowsocks.tar.xz && \
     mv sslocal ssserver ssmanager ssservice /usr/local/bin/ && \
     chmod +x /usr/local/bin/ss* && \
@@ -26,9 +26,8 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
 
 COPY docker-entrypoint.sh /usr/local/bin/
 COPY generate-config.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/generate-config.sh
-
-RUN mkdir -p /etc/shadowsocks-rust
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/generate-config.sh && \
+    mkdir -p /etc/shadowsocks-rust
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["ssserver", "-c", "/etc/shadowsocks-rust/config.json"]
