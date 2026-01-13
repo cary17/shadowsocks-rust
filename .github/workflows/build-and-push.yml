@@ -138,6 +138,49 @@ jobs:
             echo "enabled=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Create Docker Hub repository if not exists
+        if: steps.dockerhub.outputs.enabled == 'true'
+        continue-on-error: true
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          
+          # 尝试获取仓库信息
+          REPO_EXISTS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}/")
+          
+          if [ "$REPO_EXISTS" = "404" ]; then
+            echo "Repository does not exist, attempting to create..."
+            
+            # 获取 JWT token
+            TOKEN=$(curl -s -H "Content-Type: application/json" \
+              -X POST \
+              -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' \
+              https://hub.docker.com/v2/users/login/ | jq -r .token)
+            
+            if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+              # 创建仓库
+              CREATE_RESULT=$(curl -s -w "%{http_code}" -o /tmp/create_result.json \
+                -H "Authorization: JWT ${TOKEN}" \
+                -H "Content-Type: application/json" \
+                -X POST \
+                -d "{\"name\": \"${REPO_NAME}\", \"namespace\": \"${{ secrets.DOCKERHUB_USERNAME }}\", \"description\": \"Auto-built shadowsocks-rust Docker images\", \"is_private\": false}" \
+                https://hub.docker.com/v2/repositories/)
+              
+              if [ "$CREATE_RESULT" = "201" ]; then
+                echo "Repository created successfully"
+              else
+                echo "Failed to create repository, status code: $CREATE_RESULT"
+                echo "Response: $(cat /tmp/create_result.json)"
+                echo "Note: This is expected if using an Access Token instead of password"
+              fi
+            else
+              echo "Failed to get JWT token - this is expected when using Access Token"
+              echo "Access Tokens cannot create repositories, only passwords can"
+            fi
+          else
+            echo "Repository already exists or is accessible"
+          fi
+
       - name: Log in to Docker Hub
         if: steps.dockerhub.outputs.enabled == 'true'
         uses: docker/login-action@v3
@@ -183,6 +226,33 @@ jobs:
             DEBIAN_VERSION=${{ github.event.inputs.debian_version || '12' }}
           cache-from: type=gha,scope=debian
           cache-to: type=gha,mode=max,scope=debian
+        continue-on-error: true
+        id: build-push
+
+      - name: Build and push Debian to GHCR only (fallback)
+        if: steps.build-push.outcome == 'failure'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.debian
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: |
+            ${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}
+            ${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}-debian
+            ${{ env.GHCR_IMAGE }}:latest
+            ${{ env.GHCR_IMAGE }}:latest-debian
+          build-args: |
+            VERSION=${{ needs.check-version.outputs.new_version }}
+            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '12' }}
+          cache-from: type=gha,scope=debian
+          cache-to: type=gha,mode=max,scope=debian
+
+      - name: Notify about Docker Hub push failure
+        if: steps.build-push.outcome == 'failure'
+        run: |
+          echo "::warning::Failed to push to Docker Hub. Image pushed to GHCR only."
+          echo "::warning::Please manually create the repository on Docker Hub: https://hub.docker.com/repository/create"
 
   build-alpine:
     needs: check-version
@@ -215,6 +285,49 @@ jobs:
             echo "enabled=true" >> $GITHUB_OUTPUT
           else
             echo "enabled=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Docker Hub repository if not exists
+        if: steps.dockerhub.outputs.enabled == 'true'
+        continue-on-error: true
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          
+          # 尝试获取仓库信息
+          REPO_EXISTS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}/")
+          
+          if [ "$REPO_EXISTS" = "404" ]; then
+            echo "Repository does not exist, attempting to create..."
+            
+            # 获取 JWT token
+            TOKEN=$(curl -s -H "Content-Type: application/json" \
+              -X POST \
+              -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' \
+              https://hub.docker.com/v2/users/login/ | jq -r .token)
+            
+            if [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+              # 创建仓库
+              CREATE_RESULT=$(curl -s -w "%{http_code}" -o /tmp/create_result.json \
+                -H "Authorization: JWT ${TOKEN}" \
+                -H "Content-Type: application/json" \
+                -X POST \
+                -d "{\"name\": \"${REPO_NAME}\", \"namespace\": \"${{ secrets.DOCKERHUB_USERNAME }}\", \"description\": \"Auto-built shadowsocks-rust Docker images\", \"is_private\": false}" \
+                https://hub.docker.com/v2/repositories/)
+              
+              if [ "$CREATE_RESULT" = "201" ]; then
+                echo "Repository created successfully"
+              else
+                echo "Failed to create repository, status code: $CREATE_RESULT"
+                echo "Response: $(cat /tmp/create_result.json)"
+                echo "Note: This is expected if using an Access Token instead of password"
+              fi
+            else
+              echo "Failed to get JWT token - this is expected when using Access Token"
+              echo "Access Tokens cannot create repositories, only passwords can"
+            fi
+          else
+            echo "Repository already exists or is accessible"
           fi
 
       - name: Log in to Docker Hub
@@ -257,3 +370,27 @@ jobs:
             VERSION=${{ needs.check-version.outputs.new_version }}
           cache-from: type=gha,scope=alpine
           cache-to: type=gha,mode=max,scope=alpine
+        continue-on-error: true
+        id: build-push
+
+      - name: Build and push Alpine to GHCR only (fallback)
+        if: steps.build-push.outcome == 'failure'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.alpine
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/386
+          push: true
+          tags: |
+            ${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}-alpine
+            ${{ env.GHCR_IMAGE }}:latest-alpine
+          build-args: |
+            VERSION=${{ needs.check-version.outputs.new_version }}
+          cache-from: type=gha,scope=alpine
+          cache-to: type=gha,mode=max,scope=alpine
+
+      - name: Notify about Docker Hub push failure
+        if: steps.build-push.outcome == 'failure'
+        run: |
+          echo "::warning::Failed to push to Docker Hub. Image pushed to GHCR only."
+          echo "::warning::Please manually create the repository on Docker Hub: https://hub.docker.com/repository/create"
