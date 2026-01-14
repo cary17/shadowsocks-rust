@@ -1,239 +1,182 @@
 # Shadowsocks-Rust Docker 镜像
 
-自动构建的 Shadowsocks-Rust 多平台 Docker 镜像，支持多种变体和配置选项。
+基于 [shadowsocks-rust](https://github.com/shadowsocks/shadowsocks-rust) 的 Docker 镜像，提供最小化的容器部署方案。
 
-## 镜像变体
+## 🌟 特性
 
-### 1. Server (纯服务端) - 默认
-最小化的服务端镜像，仅包含 `ssserver`。
+- **🐳 多架构支持**：`linux/amd64`, `linux/arm64`, `linux/arm/v7` (Debian) / 额外支持 `linux/386` (Alpine)
+- **📦 最小化镜像**：基于 Alpine 和 Debian-slim 构建，体积最小
+- **🎯 变体分离**：Server 和 Client 独立镜像，避免冗余
+- **🔄 自动更新**：GitHub Actions 自动检测新版本并构建
+- **📝 配置生成**：Server 镜像支持通过环境变量自动生成配置
+- **🔧 多平台发布**：自动发布到 GitHub Container Registry 和 Docker Hub
 
-**标签示例：**
-- `ghcr.io/cary17/shadowsocks-rust:latest`
-- `ghcr.io/cary17/shadowsocks-rust:v1.x.x`
-- `ghcr.io/cary17/shadowsocks-rust:latest-debian`
-- `ghcr.io/cary17/shadowsocks-rust:latest-alpine`
+## 🏷️ 镜像标签
 
-### 2. Server-Manager (服务端+管理器)
-包含 `ssserver` 和 `ssmanager`，适合需要管理多个服务器的场景。
+### Debian 基础镜像
+- `latest` / `vX.Y.Z` - 服务器变体（默认）
+- `latest-server-debian` / `vX.Y.Z-server-debian` - 服务器变体
+- `latest-client-debian` / `vX.Y.Z-client-debian` - 客户端变体
 
-**标签示例：**
-- `ghcr.io/cary17/shadowsocks-rust:latest-server-manager-debian`
-- `ghcr.io/cary17/shadowsocks-rust:v1.x.x-server-manager-alpine`
+### Alpine 基础镜像
+- `latest-server-alpine` / `vX.Y.Z-server-alpine` - 服务器变体
+- `latest-client-alpine` / `vX.Y.Z-client-alpine` - 客户端变体
 
-### 3. Client (纯客户端)
-仅包含 `sslocal`，用于客户端场景。
+## 🚀 快速开始
 
-**标签示例：**
-- `ghcr.io/cary17/shadowsocks-rust:latest-client-debian`
-- `ghcr.io/cary17/shadowsocks-rust:v1.x.x-client-alpine`
-
-### 4. All (完整版)
-包含 `sslocal`、`ssserver` 和 `ssmanager`，适合开发和测试。
-
-**标签示例：**
-- `ghcr.io/cary17/shadowsocks-rust:latest-all-debian`
-- `ghcr.io/cary17/shadowsocks-rust:v1.x.x-all-alpine`
-
-## 支持的平台
-
-- **Debian 镜像**: `linux/amd64`, `linux/arm64`, `linux/arm/v7`
-- **Alpine 镜像**: `linux/amd64`, `linux/arm64`, `linux/arm/v7`, `linux/386`
-
-## 快速开始
-
-### 使用环境变量配置（单服务器）
+### 1. 服务器部署（使用环境变量）
 
 ```bash
+# 使用 Debian 镜像
 docker run -d \
-  -p 34995:34995 \
-  -e SS_SERVER_PORT=34995 \
-  -e SS_PASSWORD="HOSWV90Z2QCFGb6hxFFbJQ==" \
-  -e SS_METHOD="2022-blake3-aes-128-gcm" \
-  -e SS_OUTBOUND_BIND_INTERFACE="eth0" \
+  --name ss-server \
+  -p 8388:8388 \
+  -p 8388:8388/udp \
+  -e SS_SERVER_PORT=8388 \
+  -e SS_PASSWORD=your-password \
+  -e SS_METHOD=aes-256-gcm \
+  ghcr.io/cary17/shadowsocks-rust:latest
+
+# 使用 Alpine 镜像（更小体积）
+docker run -d \
+  --name ss-server \
+  -p 8388:8388 \
+  -p 8388:8388/udp \
+  -e SS_SERVER_PORT=8388 \
+  -e SS_PASSWORD=your-password \
+  -e SS_METHOD=aes-256-gcm \
+  ghcr.io/cary17/shadowsocks-rust:latest-server-alpine
+```
+
+### 2. 服务器部署（使用配置文件）
+
+```bash
+# 创建配置文件
+cat > config.json << EOF
+{
+  "servers": [
+    {
+      "server": "::",
+      "server_port": 8388,
+      "password": "your-password",
+      "method": "aes-256-gcm",
+      "timeout": 7200,
+      "mode": "tcp_and_udp"
+    }
+  ]
+}
+EOF
+
+# 运行容器
+docker run -d \
+  --name ss-server \
+  -p 8388:8388 \
+  -p 8388:8388/udp \
+  -v $(pwd)/config.json:/etc/ss-rust/config.json \
   ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
-### 使用配置文件
+### 3. 客户端部署
+
+```bash
+# 创建客户端配置
+cat > client-config.json << EOF
+{
+  "server": "your-server-ip",
+  "server_port": 8388,
+  "password": "your-password",
+  "method": "aes-256-gcm",
+  "local_address": "0.0.0.0",
+  "local_port": 1080,
+  "timeout": 7200
+}
+EOF
+
+# 运行客户端
+docker run -d \
+  --name ss-client \
+  -p 1080:1080 \
+  -p 1080:1080/udp \
+  -v $(pwd)/client-config.json:/etc/ss-rust/config.json \
+  ghcr.io/cary17/shadowsocks-rust:latest-client-debian
+```
+
+## 🔧 环境变量配置
+
+### 服务器镜像支持的变量
+
+#### 基本配置（必需）
+- `SS_SERVER_PORT` - 服务器端口
+- `SS_PASSWORD` - 密码
+- `SS_METHOD` - 加密方法（如：aes-256-gcm, chacha20-ietf-poly1305 等）
+
+#### 多端口配置
+- `SS_SERVER_PORT_1`, `SS_PASSWORD_1`, `SS_METHOD_1`
+- `SS_SERVER_PORT_2`, `SS_PASSWORD_2`, `SS_METHOD_2`
+- ...（支持多个端口配置）
+
+#### 高级配置（可选）
+- `SS_MODE` - 模式（默认：`tcp_and_udp`）
+- `SS_TIMEOUT` - 超时时间（秒，默认：7200）
+- `SS_DNS` - DNS 服务器地址
+- `SS_IPV6_FIRST` - IPv6 优先（true/false，默认：false）
+- `SS_IPV6_ONLY` - 仅 IPv6（true/false，默认：false）
+
+#### 单服务器可选参数
+- `SS_SERVER` - 监听地址（默认：`::`）
+- `SS_DISABLED` - 禁用此服务器（true/false，默认：false）
+- `SS_TCP_WEIGHT` - TCP 权重（默认：1.0）
+- `SS_UDP_WEIGHT` - UDP 权重（默认：1.0）
+- `SS_OUTBOUND_BIND_INTERFACE` - 出站绑定接口
+- `SS_OUTBOUND_BIND_ADDR` - 出站绑定地址
+- `SS_OUTBOUND_FWMARK` - 出站防火墙标记
+- `SS_OUTBOUND_UDP_ALLOW_FRAGMENTATION` - 允许 UDP 分片（true/false，默认：false）
+
+## 📊 多端口配置示例
 
 ```bash
 docker run -d \
-  -p 34995:34995 \
-  -v /path/to/config.json:/etc/ss-rust/config.json:ro \
+  --name ss-server \
+  -p 8388:8388 \
+  -p 8389:8389 \
+  -p 8390:8390 \
+  -e SS_SERVER_PORT_1=8388 \
+  -e SS_PASSWORD_1=password1 \
+  -e SS_METHOD_1=aes-256-gcm \
+  -e SS_SERVER_PORT_2=8389 \
+  -e SS_PASSWORD_2=password2 \
+  -e SS_METHOD_2=chacha20-ietf-poly1305 \
+  -e SS_SERVER_PORT_3=8390 \
+  -e SS_PASSWORD_3=password3 \
+  -e SS_METHOD_3=aes-128-gcm \
+  -e SS_MODE=tcp_and_udp \
   ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
-### 多服务器配置
+## 📄 配置参考
 
-```bash
-docker run -d \
-  -p 34995:34995 \
-  -p 38115:38115 \
-  -e SS_SERVER_PORT_1=34995 \
-  -e SS_PASSWORD_1="HOSWV90Z2QCFGb6hxFFbJQ==" \
-  -e SS_METHOD_1="2022-blake3-aes-128-gcm" \
-  -e SS_OUTBOUND_BIND_INTERFACE_1="eth0" \
-  -e SS_SERVER_PORT_2=38115 \
-  -e SS_PASSWORD_2="+jV8HlnpZ3gYi3UpfWxO3g==" \
-  -e SS_METHOD_2="2022-blake3-aes-128-gcm" \
-  -e SS_OUTBOUND_BIND_ADDR_2="11.22.33.44" \
-  -e SS_OUTBOUND_FWMARK_2=255 \
-  -e SS_OUTBOUND_BIND_INTERFACE_2="wg0" \
-  ghcr.io/cary17/shadowsocks-rust:latest
-```
-
-## 环境变量说明
-
-### 基础配置（必需）
-
-| 变量 | 说明 | 示例 |
-|------|------|------|
-| `SS_SERVER_PORT` | 服务器端口 | `34995` |
-| `SS_PASSWORD` | 密码 | `HOSWV90Z2QCFGb6hxFFbJQ==` |
-| `SS_METHOD` | 加密方法 | `2022-blake3-aes-128-gcm` |
-
-### 可选配置
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `SS_SERVER` | `::` | 监听地址 |
-| `SS_DISABLED` | `false` | 是否禁用 |
-| `SS_TIMEOUT` | `7200` | 超时时间(秒) |
-| `SS_TCP_WEIGHT` | `1.0` | TCP 权重 |
-| `SS_UDP_WEIGHT` | `1.0` | UDP 权重 |
-| `SS_MODE` | `tcp_and_udp` | 运行模式 |
-| `SS_DNS` | - | DNS 服务器 |
-| `SS_IPV6_FIRST` | `false` | IPv6 优先 |
-| `SS_IPV6_ONLY` | `false` | 仅 IPv6 |
-
-### 出站网络配置（新增）
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `SS_OUTBOUND_BIND_INTERFACE` | - | 绑定网络接口 |
-| `SS_OUTBOUND_BIND_ADDR` | - | 绑定 IP 地址 |
-| `SS_OUTBOUND_FWMARK` | - | Firewall Mark |
-| `SS_OUTBOUND_UDP_ALLOW_FRAGMENTATION` | `false` | 允许 UDP 分片 |
-
-### 多服务器配置
-
-在变量名后添加 `_N` 后缀（N 为数字 1, 2, 3...）：
-
-```bash
-SS_SERVER_PORT_1=34995
-SS_PASSWORD_1="password1"
-SS_METHOD_1="2022-blake3-aes-128-gcm"
-
-SS_SERVER_PORT_2=38115
-SS_PASSWORD_2="password2"
-SS_METHOD_2="2022-blake3-aes-128-gcm"
-SS_OUTBOUND_BIND_ADDR_2="11.22.33.44"
-```
-
-## Docker Compose 示例
-
-### 单服务器
-
-```yaml
-version: '3.8'
-
-services:
-  shadowsocks:
-    image: ghcr.io/cary17/shadowsocks-rust:latest
-    container_name: ss-server
-    restart: unless-stopped
-    ports:
-      - "34995:34995"
-    environment:
-      - SS_SERVER_PORT=34995
-      - SS_PASSWORD=HOSWV90Z2QCFGb6hxFFbJQ==
-      - SS_METHOD=2022-blake3-aes-128-gcm
-      - SS_OUTBOUND_BIND_INTERFACE=eth0
-      - SS_DNS=8.8.8.8
-```
-
-### 多服务器（WireGuard 场景）
-
-```yaml
-version: '3.8'
-
-services:
-  shadowsocks:
-    image: ghcr.io/cary17/shadowsocks-rust:latest
-    container_name: ss-server-multi
-    restart: unless-stopped
-    network_mode: host
-    cap_add:
-      - NET_ADMIN
-    environment:
-      # 服务器 1 - 直连
-      - SS_SERVER_PORT_1=34995
-      - SS_PASSWORD_1=HOSWV90Z2QCFGb6hxFFbJQ==
-      - SS_METHOD_1=2022-blake3-aes-128-gcm
-      - SS_OUTBOUND_BIND_INTERFACE_1=eth0
-      
-      # 服务器 2 - 通过 WireGuard
-      - SS_SERVER_PORT_2=38115
-      - SS_PASSWORD_2=+jV8HlnpZ3gYi3UpfWxO3g==
-      - SS_METHOD_2=2022-blake3-aes-128-gcm
-      - SS_OUTBOUND_BIND_ADDR_2=11.22.33.44
-      - SS_OUTBOUND_FWMARK_2=255
-      - SS_OUTBOUND_BIND_INTERFACE_2=wg0
-      - SS_OUTBOUND_UDP_ALLOW_FRAGMENTATION_2=false
-      
-      # 全局配置
-      - SS_MODE=tcp_and_udp
-      - SS_DNS=8.8.8.8
-```
-
-### 客户端模式
-
-```yaml
-version: '3.8'
-
-services:
-  shadowsocks-client:
-    image: ghcr.io/cary17/shadowsocks-rust:latest-client-alpine
-    container_name: ss-client
-    restart: unless-stopped
-    ports:
-      - "1080:1080"
-    volumes:
-      - ./client-config.json:/etc/ss-rust/config.json:ro
-    command: ["sslocal", "-c", "/etc/ss-rust/config.json"]
-```
-
-## 配置文件示例
-
-完整的 `config.json` 示例：
+### 服务器配置文件示例
 
 ```json
 {
   "servers": [
     {
-      "disabled": false,
       "server": "::",
-      "server_port": 34995,
-      "password": "HOSWV90Z2QCFGb6hxFFbJQ==",
-      "method": "2022-blake3-aes-128-gcm",
+      "server_port": 8388,
+      "password": "password1",
+      "method": "aes-256-gcm",
       "timeout": 7200,
       "tcp_weight": 1.0,
       "udp_weight": 1.0,
-      "outbound_bind_interface": "eth0",
-      "outbound_udp_allow_fragmentation": false
+      "mode": "tcp_and_udp"
     },
     {
-      "disabled": false,
       "server": "::",
-      "server_port": 38115,
-      "password": "+jV8HlnpZ3gYi3UpfWxO3g==",
-      "method": "2022-blake3-aes-128-gcm",
+      "server_port": 8389,
+      "password": "password2",
+      "method": "chacha20-ietf-poly1305",
       "timeout": 7200,
-      "tcp_weight": 1.0,
-      "udp_weight": 1.0,
-      "outbound_bind_addr": "11.22.33.44",
-      "outbound_fwmark": 255,
-      "outbound_bind_interface": "wg0",
-      "outbound_udp_allow_fragmentation": false
+      "disabled": false
     }
   ],
   "mode": "tcp_and_udp",
@@ -243,24 +186,51 @@ services:
 }
 ```
 
-## 镜像体积对比
+### 客户端配置文件示例
 
-| 变体 | Debian (约) | Alpine (约) |
-|------|-------------|-------------|
-| server | ~80 MB | ~15 MB |
-| server-manager | ~85 MB | ~17 MB |
-| client | ~80 MB | ~15 MB |
-| all | ~90 MB | ~19 MB |
+```json
+{
+  "server": "your-server-ip",
+  "server_port": 8388,
+  "password": "your-password",
+  "method": "aes-256-gcm",
+  "local_address": "0.0.0.0",
+  "local_port": 1080,
+  "timeout": 7200,
+  "fast_open": false
+}
+```
 
-*实际体积因架构和版本而异*
+## 🖥️ 支持的架构
 
-## 自动构建
+### Debian 镜像
+- `linux/amd64`
+- `linux/arm64`
+- `linux/arm/v7`
 
-镜像每小时自动检查上游新版本并构建：
-- 定时任务：每小时整点运行
-- 手动触发：GitHub Actions workflow_dispatch
-- 版本检测：自动对比 GHCR 和上游版本
+### Alpine 镜像
+- `linux/amd64`
+- `linux/arm64`
+- `linux/arm/v7`
+- `linux/386`
 
-## 许可证
+## 📦 版本管理
 
-本项目采用与 shadowsocks-rust 相同的许可证。
+镜像版本与上游 shadowsocks-rust 版本保持一致：
+- 主标签：`vX.Y.Z`（对应 shadowsocks-rust 版本）
+- 最新标签：`latest`（始终指向最新稳定版）
+
+
+## 📦 镜像仓库
+
+### GHCR (推荐)
+```bash
+ghcr.io/cary17/shadowsocks-rust:latest
+ghcr.io/cary17/shadowsocks-rust:5.0.1
+```
+
+### Docker Hub
+```bash
+cary17/shadowsocks-rust:latest
+cary17e/shadowsocks-rust:5.0.1
+```
