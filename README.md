@@ -8,31 +8,31 @@
 最小化的服务端镜像，仅包含 `ssserver`。
 
 **标签示例：**
-- `ghcr.io/your-repo/shadowsocks-rust:latest`
-- `ghcr.io/your-repo/shadowsocks-rust:v1.x.x`
-- `ghcr.io/your-repo/shadowsocks-rust:latest-debian`
-- `ghcr.io/your-repo/shadowsocks-rust:latest-alpine`
+- `ghcr.io/cary17/shadowsocks-rust:latest`
+- `ghcr.io/cary17/shadowsocks-rust:v1.x.x`
+- `ghcr.io/cary17/shadowsocks-rust:latest-debian`
+- `ghcr.io/cary17/shadowsocks-rust:latest-alpine`
 
 ### 2. Server-Manager (服务端+管理器)
 包含 `ssserver` 和 `ssmanager`，适合需要管理多个服务器的场景。
 
 **标签示例：**
-- `ghcr.io/your-repo/shadowsocks-rust:latest-server-manager-debian`
-- `ghcr.io/your-repo/shadowsocks-rust:v1.x.x-server-manager-alpine`
+- `ghcr.io/cary17/shadowsocks-rust:latest-server-manager-debian`
+- `ghcr.io/cary17/shadowsocks-rust:v1.x.x-server-manager-alpine`
 
 ### 3. Client (纯客户端)
 仅包含 `sslocal`，用于客户端场景。
 
 **标签示例：**
-- `ghcr.io/your-repo/shadowsocks-rust:latest-client-debian`
-- `ghcr.io/your-repo/shadowsocks-rust:v1.x.x-client-alpine`
+- `ghcr.io/cary17/shadowsocks-rust:latest-client-debian`
+- `ghcr.io/cary17/shadowsocks-rust:v1.x.x-client-alpine`
 
 ### 4. All (完整版)
 包含 `sslocal`、`ssserver` 和 `ssmanager`，适合开发和测试。
 
 **标签示例：**
-- `ghcr.io/your-repo/shadowsocks-rust:latest-all-debian`
-- `ghcr.io/your-repo/shadowsocks-rust:v1.x.x-all-alpine`
+- `ghcr.io/cary17/shadowsocks-rust:latest-all-debian`
+- `ghcr.io/cary17/shadowsocks-rust:v1.x.x-all-alpine`
 
 ## 支持的平台
 
@@ -50,7 +50,7 @@ docker run -d \
   -e SS_PASSWORD="HOSWV90Z2QCFGb6hxFFbJQ==" \
   -e SS_METHOD="2022-blake3-aes-128-gcm" \
   -e SS_OUTBOUND_BIND_INTERFACE="eth0" \
-  ghcr.io/your-repo/shadowsocks-rust:latest
+  ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
 ### 使用配置文件
@@ -59,7 +59,7 @@ docker run -d \
 docker run -d \
   -p 34995:34995 \
   -v /path/to/config.json:/etc/ss-rust/config.json:ro \
-  ghcr.io/your-repo/shadowsocks-rust:latest
+  ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
 ### 多服务器配置
@@ -78,7 +78,7 @@ docker run -d \
   -e SS_OUTBOUND_BIND_ADDR_2="11.22.33.44" \
   -e SS_OUTBOUND_FWMARK_2=255 \
   -e SS_OUTBOUND_BIND_INTERFACE_2="wg0" \
-  ghcr.io/your-repo/shadowsocks-rust:latest
+  ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
 ## 环境变量说明
@@ -138,7 +138,7 @@ version: '3.8'
 
 services:
   shadowsocks:
-    image: ghcr.io/your-repo/shadowsocks-rust:latest
+    image: ghcr.io/cary17/shadowsocks-rust:latest
     container_name: ss-server
     restart: unless-stopped
     ports:
@@ -158,7 +158,7 @@ version: '3.8'
 
 services:
   shadowsocks:
-    image: ghcr.io/your-repo/shadowsocks-rust:latest
+    image: ghcr.io/cary17/shadowsocks-rust:latest
     container_name: ss-server-multi
     restart: unless-stopped
     network_mode: host
@@ -192,7 +192,7 @@ version: '3.8'
 
 services:
   shadowsocks-client:
-    image: ghcr.io/your-repo/shadowsocks-rust:latest-client-alpine
+    image: ghcr.io/cary17/shadowsocks-rust:latest-client-alpine
     container_name: ss-client
     restart: unless-stopped
     ports:
