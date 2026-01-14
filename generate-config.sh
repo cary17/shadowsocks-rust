@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-CONFIG_FILE="/etc/shadowsocks-rust/config.json"
+CONFIG_FILE="/etc/ss-rust/config.json"
 
 # 获取所有 SS_SERVER_PORT_* 环境变量
 get_server_indices() {
