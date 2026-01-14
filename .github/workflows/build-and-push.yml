@@ -121,7 +121,7 @@ jobs:
     strategy:
       matrix:
         base: [debian, alpine]
-        variant: [server, server-manager, client, all]
+        variant: [server, client]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -175,7 +175,7 @@ jobs:
           if [ "$VARIANT" = "server" ]; then
             SUFFIX=""
           else
-            SUFFIX="-${VARIANT}"
+            SUFFIX="-$VARIANT"
           fi
           
           TAGS="${{ env.GHCR_IMAGE }}:${VERSION}${SUFFIX}-${BASE}
