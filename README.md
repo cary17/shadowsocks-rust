@@ -36,10 +36,10 @@
 
 ```bash
 docker run -d \
-  --name shadowsocks \
+  --name ss-rust \
   -p 8388:8388/tcp \
   -p 8388:8388/udp \
-  -v /path/to/config.json:/etc/shadowsocks-rust/config.json:ro \
+  -v /path/to/config.json:/etc/ss-rust/config.json:ro \
   --restart always \
   ghcr.io/cary17/shadowsocks-rust:latest
 ```
@@ -86,7 +86,7 @@ docker run -d \
 
 ```bash
 docker run -d \
-  --name shadowsocks \
+  --name ss-rust \
   -p 34995:34995/tcp \
   -p 34995:34995/udp \
   -p 38115:38115/tcp \
@@ -114,7 +114,7 @@ version: '3.8'
 services:
   shadowsocks:
     image: ghcr.io/cary17/shadowsocks-rust:latest
-    container_name: shadowsocks
+    container_name: ss-rust
     ports:
       - "8388:8388/tcp"
       - "8388:8388/udp"
@@ -135,12 +135,12 @@ version: '3.8'
 services:
   shadowsocks:
     image: ghcr.io/cary17/shadowsocks-rust:latest
-    container_name: shadowsocks
+    container_name: ss-rust
     ports:
       - "8388:8388/tcp"
       - "8388:8388/udp"
     volumes:
-      - ./config.json:/etc/shadowsocks-rust/config.json:ro
+      - ./config.json:/etc/ss-rust/config.json:ro
     restart: always
 ```
 
@@ -152,7 +152,7 @@ version: '3.8'
 services:
   shadowsocks:
     image: ghcr.io/cary17/shadowsocks-rust:latest
-    container_name: shadowsocks
+    container_name: ss-rust
     ports:
       - "34995:34995/tcp"
       - "34995:34995/udp"
