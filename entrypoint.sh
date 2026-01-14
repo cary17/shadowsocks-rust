@@ -8,7 +8,7 @@ trap 'kill -TERM $child 2>/dev/null; wait $child 2>/dev/null' TERM INT
 case "$1" in
     sslocal|ssserver|ssmanager|ssservice)
         # 如果配置文件不存在且设置了环境变量，生成配置文件
-        if [ ! -f "/etc/shadowsocks-rust/config.json" ]; then
+        if [ ! -f "/etc/ss-rust/config.json" ]; then
             if [ -n "${SS_SERVER_PORT}" ] && [ -n "${SS_PASSWORD}" ] && [ -n "${SS_METHOD}" ]; then
                 echo "Generating configuration from environment variables"
                 /usr/local/bin/generate-config.sh
@@ -19,7 +19,7 @@ case "$1" in
                 exit 1
             fi
         else
-            echo "Configuration file found at /etc/shadowsocks-rust/config.json"
+            echo "Configuration file found at /etc/ss-rust/config.json"
         fi
         
         echo "Ready for start up"
