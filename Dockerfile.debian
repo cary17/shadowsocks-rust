@@ -1,9 +1,10 @@
 ARG DEBIAN_VERSION=12
-FROM debian:${DEBIAN_VERSION}-slim
+FROM debian:${DEBIAN_VERSION}-slim AS builder
 
 ARG VERSION
 ARG TARGETARCH
 ARG TARGETVARIANT
+ARG VARIANT=server
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -25,14 +26,55 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     echo "Downloading from: ${DOWNLOAD_URL}" && \
     wget -q -O shadowsocks.tar.xz "${DOWNLOAD_URL}" && \
     tar -xf shadowsocks.tar.xz && \
-    mv sslocal ssserver ssmanager ssservice /usr/local/bin/ && \
+    case "$VARIANT" in \
+        "server") \
+            mv ssserver /usr/local/bin/ ;; \
+        "server-manager") \
+            mv ssserver ssmanager /usr/local/bin/ ;; \
+        "client") \
+            mv sslocal /usr/local/bin/ ;; \
+        "all") \
+            mv sslocal ssserver ssmanager /usr/local/bin/ ;; \
+        *) echo "Unknown variant: $VARIANT" && exit 1 ;; \
+    esac && \
     chmod +x /usr/local/bin/ss* && \
     rm -rf /tmp/*
+
+ARG DEBIAN_VERSION=12
+FROM debian:${DEBIAN_VERSION}-slim
+
+ARG VARIANT=server
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/bin/ss* /usr/local/bin/
 
 COPY entrypoint.sh /usr/local/bin/
 COPY generate-config.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/generate-config.sh && \
     mkdir -p /etc/ss-rust
 
+ENV SS_VARIANT=${VARIANT}
+
 ENTRYPOINT ["entrypoint.sh"]
-CMD ["ssserver", "-c", "/etc/ss-rust/config.json"]
+
+# 根据变体设置默认命令
+RUN case "$VARIANT" in \
+        "server"|"server-manager") \
+            echo '#!/bin/sh' > /default-cmd.sh && \
+            echo 'exec ssserver -c /etc/ss-rust/config.json "$@"' >> /default-cmd.sh ;; \
+        "client") \
+            echo '#!/bin/sh' > /default-cmd.sh && \
+            echo 'exec sslocal -c /etc/ss-rust/config.json "$@"' >> /default-cmd.sh ;; \
+        "all") \
+            echo '#!/bin/sh' > /default-cmd.sh && \
+            echo 'exec ssserver -c /etc/ss-rust/config.json "$@"' >> /default-cmd.sh ;; \
+        *) \
+            echo '#!/bin/sh' > /default-cmd.sh && \
+            echo 'exec ssserver -c /etc/ss-rust/config.json "$@"' >> /default-cmd.sh ;; \
+    esac && \
+    chmod +x /default-cmd.sh
+
+CMD ["/default-cmd.sh"]
