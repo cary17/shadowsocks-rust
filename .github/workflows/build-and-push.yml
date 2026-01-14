@@ -214,10 +214,10 @@ jobs:
           tags: ${{ steps.prepare.outputs.tags }}
           build-args: |
             VERSION=${{ needs.check-version.outputs.new_version }}
-            VARIANT=${{ matrix.variant }}
             DEBIAN_VERSION=${{ github.event.inputs.debian_version || '12' }}
           cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
           cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
+          target: ${{ matrix.variant }}
         continue-on-error: true
         id: build-push
 
@@ -234,10 +234,10 @@ jobs:
             ${{ env.GHCR_IMAGE }}:latest-${{ matrix.variant }}-${{ matrix.base }}
           build-args: |
             VERSION=${{ needs.check-version.outputs.new_version }}
-            VARIANT=${{ matrix.variant }}
             DEBIAN_VERSION=${{ github.event.inputs.debian_version || '12' }}
           cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
           cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
+          target: ${{ matrix.variant }}
 
       - name: Notify about Docker Hub push failure
         if: steps.build-push.outcome == 'failure'
