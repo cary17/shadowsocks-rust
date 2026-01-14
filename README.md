@@ -226,7 +226,7 @@ docker run -d \
 
 ## 📦 镜像仓库
 
-### GHCR (推荐)
+### GHCR
 ```bash
 ghcr.io/cary17/shadowsocks-rust:latest
 ghcr.io/cary17/shadowsocks-rust:5.0.1
