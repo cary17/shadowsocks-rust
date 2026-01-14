@@ -8,11 +8,13 @@ RUN apt-get update && \
     xz-utils && \
     rm -rf /var/lib/apt/lists/*
 
-# 服务器变体
+# 服务器变体构建阶段
 FROM builder-base AS server-builder
 ARG VERSION
 ARG TARGETARCH
 ARG TARGETVARIANT
+
+WORKDIR /tmp
 
 RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     "amd64") SS_ARCH="x86_64-unknown-linux-gnu" ;; \
@@ -29,11 +31,13 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     chmod +x /usr/local/bin/ssserver && \
     rm -rf /tmp/*
 
-# 客户端变体
+# 客户端变体构建阶段
 FROM builder-base AS client-builder
 ARG VERSION
 ARG TARGETARCH
 ARG TARGETVARIANT
+
+WORKDIR /tmp
 
 RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     "amd64") SS_ARCH="x86_64-unknown-linux-gnu" ;; \
@@ -50,7 +54,7 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     chmod +x /usr/local/bin/sslocal && \
     rm -rf /tmp/*
 
-# 服务器镜像
+# 最终服务器镜像
 FROM debian:${DEBIAN_VERSION}-slim AS server
 ARG DEBIAN_VERSION=12
 
@@ -69,7 +73,7 @@ ENV SS_VARIANT=server
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["ssserver", "-c", "/etc/ss-rust/config.json"]
 
-# 客户端镜像
+# 最终客户端镜像
 FROM debian:${DEBIAN_VERSION}-slim AS client
 ARG DEBIAN_VERSION=12
 
