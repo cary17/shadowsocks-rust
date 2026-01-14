@@ -24,12 +24,8 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     case "$VARIANT" in \
         "server") \
             mv ssserver /usr/local/bin/ ;; \
-        "server-manager") \
-            mv ssserver ssmanager /usr/local/bin/ ;; \
         "client") \
             mv sslocal /usr/local/bin/ ;; \
-        "all") \
-            mv sslocal ssserver ssmanager /usr/local/bin/ ;; \
         *) echo "Unknown variant: $VARIANT" && exit 1 ;; \
     esac && \
     chmod +x /usr/local/bin/ss* && \
@@ -54,18 +50,12 @@ ENTRYPOINT ["entrypoint.sh"]
 
 # 根据变体设置默认命令
 RUN case "$VARIANT" in \
-        "server"|"server-manager") \
+        "server") \
             echo '#!/bin/sh' > /default-cmd.sh && \
             echo 'exec ssserver -c /etc/ss-rust/config.json "$@"' >> /default-cmd.sh ;; \
         "client") \
             echo '#!/bin/sh' > /default-cmd.sh && \
             echo 'exec sslocal -c /etc/ss-rust/config.json "$@"' >> /default-cmd.sh ;; \
-        "all") \
-            echo '#!/bin/sh' > /default-cmd.sh && \
-            echo 'exec ssserver -c /etc/ss-rust/config.json "$@"' >> /default-cmd.sh ;; \
-        *) \
-            echo '#!/bin/sh' > /default-cmd.sh && \
-            echo 'exec ssserver -c /etc/ss-rust/config.json "$@"' >> /default-cmd.sh ;; \
     esac && \
     chmod +x /default-cmd.sh
 
