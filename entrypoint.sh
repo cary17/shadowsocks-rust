@@ -6,7 +6,7 @@ trap 'kill -TERM $child 2>/dev/null; wait $child 2>/dev/null' TERM INT
 
 # 检查是否是 shadowsocks 命令
 case "$1" in
-    sslocal|ssserver|ssmanager)
+    sslocal|ssserver)
         # 检查二进制是否存在
         if ! command -v "$1" >/dev/null 2>&1; then
             echo "Error: $1 is not available in this image variant"
@@ -14,9 +14,7 @@ case "$1" in
             echo ""
             echo "Available variants:"
             echo "  - server: only ssserver"
-            echo "  - server-manager: ssserver + ssmanager"
             echo "  - client: only sslocal"
-            echo "  - all: sslocal + ssserver + ssmanager"
             exit 1
         fi
         
