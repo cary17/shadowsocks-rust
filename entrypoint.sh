@@ -18,21 +18,6 @@ case "$1" in
             exit 1
         fi
         
-        # 如果配置文件不存在且设置了环境变量，生成配置文件
-        if [ ! -f "/etc/ss-rust/config.json" ]; then
-            if [ -n "${SS_SERVER_PORT}" ] && [ -n "${SS_PASSWORD}" ] && [ -n "${SS_METHOD}" ]; then
-                echo "Generating configuration from environment variables"
-                /usr/local/bin/generate-config.sh
-                echo "Configuration generated successfully"
-            else
-                echo "No configuration file found and required environment variables not set"
-                echo "Please provide config.json or set SS_SERVER_PORT, SS_PASSWORD, and SS_METHOD"
-                exit 1
-            fi
-        else
-            echo "Configuration file found at /etc/ss-rust/config.json"
-        fi
-        
         echo "Ready for start up with variant: ${SS_VARIANT:-unknown}"
         ;;
 esac
