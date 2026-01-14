@@ -6,7 +6,20 @@ trap 'kill -TERM $child 2>/dev/null; wait $child 2>/dev/null' TERM INT
 
 # 检查是否是 shadowsocks 命令
 case "$1" in
-    sslocal|ssserver|ssmanager|ssservice)
+    sslocal|ssserver|ssmanager)
+        # 检查二进制是否存在
+        if ! command -v "$1" >/dev/null 2>&1; then
+            echo "Error: $1 is not available in this image variant"
+            echo "Current variant: ${SS_VARIANT:-unknown}"
+            echo ""
+            echo "Available variants:"
+            echo "  - server: only ssserver"
+            echo "  - server-manager: ssserver + ssmanager"
+            echo "  - client: only sslocal"
+            echo "  - all: sslocal + ssserver + ssmanager"
+            exit 1
+        fi
+        
         # 如果配置文件不存在且设置了环境变量，生成配置文件
         if [ ! -f "/etc/ss-rust/config.json" ]; then
             if [ -n "${SS_SERVER_PORT}" ] && [ -n "${SS_PASSWORD}" ] && [ -n "${SS_METHOD}" ]; then
@@ -22,7 +35,7 @@ case "$1" in
             echo "Configuration file found at /etc/ss-rust/config.json"
         fi
         
-        echo "Ready for start up"
+        echo "Ready for start up with variant: ${SS_VARIANT:-unknown}"
         ;;
 esac
 
