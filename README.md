@@ -25,9 +25,8 @@
 ## 🚀 快速开始
 
 ### 1. 服务器部署（使用环境变量）
-
-```bash
 # 使用 Debian 镜像
+```bash
 docker run -d \
   --name ss-server \
   -p 8388:8388 \
@@ -36,8 +35,9 @@ docker run -d \
   -e SS_PASSWORD=your-password \
   -e SS_METHOD=aes-256-gcm \
   ghcr.io/cary17/shadowsocks-rust:latest
-
+```
 # 使用 Alpine 镜像（更小体积）
+```
 docker run -d \
   --name ss-server \
   -p 8388:8388 \
@@ -66,8 +66,9 @@ cat > config.json << EOF
   ]
 }
 EOF
-
+```
 # 运行容器
+```
 docker run -d \
   --name ss-server \
   -p 8388:8388 \
@@ -91,8 +92,10 @@ cat > client-config.json << EOF
   "timeout": 7200
 }
 EOF
+```
 
 # 运行客户端
+```
 docker run -d \
   --name ss-client \
   -p 1080:1080 \
