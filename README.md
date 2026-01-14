@@ -235,5 +235,5 @@ ghcr.io/cary17/shadowsocks-rust:5.0.1
 ### Docker Hub
 ```bash
 cary17/shadowsocks-rust:latest
-cary17e/shadowsocks-rust:5.0.1
+cary17/shadowsocks-rust:5.0.1
 ```
