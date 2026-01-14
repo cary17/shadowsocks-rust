@@ -51,7 +51,7 @@ docker run -d \
 ### 2. 服务器部署（使用配置文件）
 
 ```bash
-# 创建配置文件
+### 创建配置文件
 cat > config.json << EOF
 {
   "servers": [
@@ -67,7 +67,7 @@ cat > config.json << EOF
 }
 EOF
 ```
-# 运行容器
+### 运行容器
 ```
 docker run -d \
   --name ss-server \
@@ -80,7 +80,7 @@ docker run -d \
 ### 3. 客户端部署
 
 ```bash
-# 创建客户端配置
+### 创建客户端配置
 cat > client-config.json << EOF
 {
   "server": "your-server-ip",
@@ -94,7 +94,7 @@ cat > client-config.json << EOF
 EOF
 ```
 
-# 运行客户端
+### 运行客户端
 ```
 docker run -d \
   --name ss-client \
