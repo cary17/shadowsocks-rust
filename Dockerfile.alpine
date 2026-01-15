@@ -1,8 +1,9 @@
+# Dockerfile.alpine
 FROM alpine:latest AS builder-base
 
 RUN apk add --no-cache ca-certificates wget
 
-# 服务器变体构建阶段
+# ========== 服务器构建器 ==========
 FROM builder-base AS server-builder
 ARG VERSION
 ARG TARGETARCH
@@ -26,7 +27,7 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     chmod +x /usr/local/bin/ssserver && \
     rm -rf /tmp/*
 
-# 客户端变体构建阶段
+# ========== 客户端构建器 ==========
 FROM builder-base AS client-builder
 ARG VERSION
 ARG TARGETARCH
@@ -50,7 +51,7 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     chmod +x /usr/local/bin/sslocal && \
     rm -rf /tmp/*
 
-# 最终服务器镜像
+# ========== 最终服务器镜像 ==========
 FROM alpine:latest AS server
 
 RUN apk add --no-cache ca-certificates && \
@@ -66,7 +67,7 @@ ENV SS_VARIANT=server
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["ssserver", "-c", "/etc/ss-rust/config.json"]
 
-# 最终客户端镜像
+# ========== 最终客户端镜像 ==========
 FROM alpine:latest AS client
 
 RUN apk add --no-cache ca-certificates && \
