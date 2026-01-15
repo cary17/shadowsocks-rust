@@ -271,7 +271,7 @@ jobs:
             else
               TAGS="$TAGS
               ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${VERSION}${SUFFIX}-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME }:latest${SUFFIX}-${BASE}"
+              ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:latest${SUFFIX}-${BASE}"
             fi
             
             if [ "$VARIANT" = "server" ] && [ "$BASE" = "debian" ]; then
@@ -300,7 +300,6 @@ jobs:
           tags: ${{ steps.prepare.outputs.tags }}
           build-args: |
             VERSION=${{ needs.check-version.outputs.new_version }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '12' }}
           cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
           cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
           target: ${{ matrix.variant }}
@@ -319,7 +318,6 @@ jobs:
             ${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}-${{ matrix.variant }}-${{ matrix.base }}
           build-args: |
             VERSION=${{ needs.check-version.outputs.new_version }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '12' }}
           cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
           cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
           target: ${{ matrix.variant }}
