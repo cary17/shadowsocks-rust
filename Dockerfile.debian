@@ -1,4 +1,7 @@
+# Dockerfile.debian
 ARG DEBIAN_VERSION=12
+
+# ========== 基础构建器 ==========
 FROM debian:${DEBIAN_VERSION}-slim AS builder-base
 
 RUN apt-get update && \
@@ -8,7 +11,7 @@ RUN apt-get update && \
     xz-utils && \
     rm -rf /var/lib/apt/lists/*
 
-# 服务器变体构建阶段
+# ========== 服务器构建器 ==========
 FROM builder-base AS server-builder
 ARG VERSION
 ARG TARGETARCH
@@ -31,7 +34,7 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     chmod +x /usr/local/bin/ssserver && \
     rm -rf /tmp/*
 
-# 客户端变体构建阶段
+# ========== 客户端构建器 ==========
 FROM builder-base AS client-builder
 ARG VERSION
 ARG TARGETARCH
@@ -54,7 +57,7 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     chmod +x /usr/local/bin/sslocal && \
     rm -rf /tmp/*
 
-# 最终服务器镜像
+# ========== 最终服务器镜像 ==========
 FROM debian:${DEBIAN_VERSION}-slim AS server
 ARG DEBIAN_VERSION=12
 
@@ -73,7 +76,7 @@ ENV SS_VARIANT=server
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["ssserver", "-c", "/etc/ss-rust/config.json"]
 
-# 最终客户端镜像
+# ========== 最终客户端镜像 ==========
 FROM debian:${DEBIAN_VERSION}-slim AS client
 ARG DEBIAN_VERSION=12
 
