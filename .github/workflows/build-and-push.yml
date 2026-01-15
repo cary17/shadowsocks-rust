@@ -28,8 +28,8 @@ jobs:
       - name: Check for new release
         id: check
         run: |
-          MAX_RETRIES=3
-          RETRY_DELAY=5
+          MAX_RETRIES=5
+          RETRY_DELAY=10
           
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i of $MAX_RETRIES: Fetching shadowsocks-rust latest version..."
