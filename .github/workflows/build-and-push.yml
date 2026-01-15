@@ -13,6 +13,11 @@ on:
         description: 'Force build even if version exists'
         required: false
         default: 'false'
+      version:
+        description: 'Shadowsocks-rust version (e.g., v1.17.0, leave empty for latest)'
+        required: false
+        default: ''
+        type: string
 
 env:
   GHCR_REGISTRY: ghcr.io
@@ -24,12 +29,70 @@ jobs:
     outputs:
       new_version: ${{ steps.check.outputs.new_version }}
       should_build: ${{ steps.check.outputs.should_build }}
+      version_source: ${{ steps.check.outputs.version_source }}
     steps:
       - name: Check for new release
         id: check
         run: |
           MAX_RETRIES=5
           RETRY_DELAY=10
+          
+          # 检查是否有手动指定的版本
+          MANUAL_VERSION="${{ github.event.inputs.version }}"
+          
+          if [ -n "$MANUAL_VERSION" ]; then
+            echo "Using manually specified version: $MANUAL_VERSION"
+            # 确保版本号以 'v' 开头
+            if [[ ! "$MANUAL_VERSION" =~ ^v ]]; then
+              MANUAL_VERSION="v$MANUAL_VERSION"
+            fi
+            echo "new_version=$MANUAL_VERSION" >> $GITHUB_OUTPUT
+            echo "version_source=manual" >> $GITHUB_OUTPUT
+            
+            # 对于手动指定的版本，检查是否需要构建
+            if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
+              echo "Force build enabled for manual version"
+              echo "should_build=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            # 检查 GHCR 是否已存在该版本
+            GHCR_LATEST=""
+            for i in $(seq 1 $MAX_RETRIES); do
+              echo "Attempt $i of $MAX_RETRIES: Checking if version exists in GHCR..."
+              
+              TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/shadowsocks-rust:pull" | jq -r '.token // empty')
+              
+              if [ -n "$TOKEN" ]; then
+                GHCR_VERSIONS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+                  "https://ghcr.io/v2/${{ github.repository_owner }}/shadowsocks-rust/tags/list" | \
+                  jq -r '.tags[]?')
+                
+                # 检查是否已存在该版本（任何变体）
+                if echo "$GHCR_VERSIONS" | grep -q "^${MANUAL_VERSION}\(-.*\)\?$"; then
+                  echo "Version $MANUAL_VERSION already exists in GHCR"
+                  echo "should_build=false" >> $GITHUB_OUTPUT
+                  break
+                else
+                  echo "Version $MANUAL_VERSION not found in GHCR"
+                  echo "should_build=true" >> $GITHUB_OUTPUT
+                  break
+                fi
+              else
+                echo "Failed to get GHCR token, assuming version doesn't exist"
+                if [ $i -eq $MAX_RETRIES ]; then
+                  echo "should_build=true" >> $GITHUB_OUTPUT
+                else
+                  sleep $RETRY_DELAY
+                fi
+              fi
+            done
+            exit 0
+          fi
+          
+          # 自动获取最新版本
+          echo "No manual version specified, fetching latest release..."
+          echo "version_source=auto" >> $GITHUB_OUTPUT
           
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i of $MAX_RETRIES: Fetching shadowsocks-rust latest version..."
@@ -160,8 +223,11 @@ jobs:
         run: |
           REPO_NAME="${{ github.event.repository.name }}"
           VERSION="${{ needs.check-version.outputs.new_version }}"
+          VERSION_SOURCE="${{ needs.check-version.outputs.version_source }}"
           BASE="${{ matrix.base }}"
           VARIANT="${{ matrix.variant }}"
+          
+          echo "Building version: $VERSION (source: $VERSION_SOURCE)"
           
           # 设置平台
           if [ "$BASE" = "alpine" ]; then
@@ -181,22 +247,42 @@ jobs:
           TAGS="${{ env.GHCR_IMAGE }}:${VERSION}${SUFFIX}-${BASE}
           ${{ env.GHCR_IMAGE }}:latest${SUFFIX}-${BASE}"
           
+          # 对于手动指定的版本，不添加 "latest" 标签（只添加带版本号的）
+          if [ "$VERSION_SOURCE" = "manual" ]; then
+            TAGS="${{ env.GHCR_IMAGE }}:${VERSION}${SUFFIX}-${BASE}"
+          fi
+          
           # server 变体额外添加无后缀标签（作为默认）
           if [ "$VARIANT" = "server" ] && [ "$BASE" = "debian" ]; then
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE }}:${VERSION}
-            ${{ env.GHCR_IMAGE }}:latest"
+            if [ "$VERSION_SOURCE" = "manual" ]; then
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE }}:${VERSION}"
+            else
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE }}:${VERSION}
+              ${{ env.GHCR_IMAGE }}:latest"
+            fi
           fi
           
           if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
-            TAGS="$TAGS
-            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${VERSION}${SUFFIX}-${BASE}
-            ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:latest${SUFFIX}-${BASE}"
+            if [ "$VERSION_SOURCE" = "manual" ]; then
+              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${VERSION}${SUFFIX}-${BASE}"
+            else
+              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${VERSION}${SUFFIX}-${BASE}
+              ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME }:latest${SUFFIX}-${BASE}"
+            fi
             
             if [ "$VARIANT" = "server" ] && [ "$BASE" = "debian" ]; then
-              TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${VERSION}
-              ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:latest"
+              if [ "$VERSION_SOURCE" = "manual" ]; then
+                TAGS="$TAGS
+                ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${VERSION}"
+              else
+                TAGS="$TAGS
+                ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${VERSION}
+                ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:latest"
+              fi
             fi
           fi
           
@@ -231,7 +317,6 @@ jobs:
           push: true
           tags: |
             ${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}-${{ matrix.variant }}-${{ matrix.base }}
-            ${{ env.GHCR_IMAGE }}:latest-${{ matrix.variant }}-${{ matrix.base }}
           build-args: |
             VERSION=${{ needs.check-version.outputs.new_version }}
             DEBIAN_VERSION=${{ github.event.inputs.debian_version || '12' }}
