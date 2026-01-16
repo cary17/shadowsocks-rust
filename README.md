@@ -205,7 +205,3 @@ services:
 ### Server vs Client
 - **Server**: 用于搭建 Shadowsocks 服务端
 - **Client**: 用于客户端代理，提供 SOCKS5 代理服务
-
-## License
-
-本项目采用 MIT 许可证。Shadowsocks-rust 本身的许可证请参考[官方仓库](https://github.com/shadowsocks/shadowsocks-rust)。
