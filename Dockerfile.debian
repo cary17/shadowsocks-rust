@@ -1,5 +1,5 @@
 # Dockerfile.debian
-ARG DEBIAN_VERSION=13
+ARG DEBIAN_VERSION=stable
 
 # ========== 下载器阶段（最小化） ==========
 FROM debian:${DEBIAN_VERSION}-slim AS downloader
