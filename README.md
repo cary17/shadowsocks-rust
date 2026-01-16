@@ -56,20 +56,6 @@ docker run -d \
   ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
-### 客户端（使用环境变量）
-
-```bash
-docker run -d \
-  --name ss-rust-client \
-  -p 1080:1080 \
-  -e SS_SERVER=your-server.com \
-  -e SS_SERVER_PORT=8388 \
-  -e SS_PASSWORD=your_password \
-  -e SS_METHOD=aes-256-gcm \
-  -e SS_LOCAL_PORT=1080 \
-  ghcr.io/cary17/shadowsocks-rust:latest-client-alpine
-```
-
 ### 使用配置文件
 
 ```bash
@@ -102,18 +88,6 @@ docker run -d \
 | `SS_OUTBOUND_BIND_ADDR` | 否 | - | 出站绑定地址 |
 | `SS_OUTBOUND_UDP_ALLOW_FRAGMENTATION` | 否 | `false` | 允许 UDP 分片 |
 
-### 客户端环境变量
-
-| 变量名 | 必填 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `SS_SERVER` | 是 | - | 服务器地址 |
-| `SS_SERVER_PORT` | 是 | - | 服务器端口 |
-| `SS_PASSWORD` | 是 | - | 密码 |
-| `SS_METHOD` | 是 | - | 加密方法 |
-| `SS_LOCAL_PORT` | 否 | `1080` | 本地 SOCKS5 端口 |
-| `SS_LOCAL_ADDRESS` | 否 | `0.0.0.0` | 本地监听地址 |
-| `SS_TIMEOUT` | 否 | `7200` | 超时时间（秒）|
-| `SS_MODE` | 否 | `tcp_and_udp` | 工作模式 |
 
 ### 多服务器配置
 
@@ -167,26 +141,6 @@ services:
       - SS_MODE=tcp_and_udp
 ```
 
-### 客户端
-
-```yaml
-version: '3.8'
-
-services:
-  shadowsocks-client:
-    image: ghcr.io/cary17/shadowsocks-rust:latest-client-alpine
-    container_name: ss-client
-    restart: unless-stopped
-    ports:
-      - "1080:1080"
-    environment:
-      - SS_SERVER=your-server.com
-      - SS_SERVER_PORT=8388
-      - SS_PASSWORD=your_strong_password
-      - SS_METHOD=aes-256-gcm
-      - SS_LOCAL_PORT=1080
-      - SS_LOCAL_ADDRESS=0.0.0.0
-```
 
 ## 配置文件格式
 
@@ -209,23 +163,6 @@ services:
 }
 ```
 
-### 客户端配置示例
-
-```json
-{
-  "servers": [
-    {
-      "server": "your-server.com",
-      "server_port": 8388,
-      "password": "your_password",
-      "method": "aes-256-gcm"
-    }
-  ],
-  "local_address": "0.0.0.0",
-  "local_port": 1080,
-  "mode": "tcp_and_udp"
-}
-```
 
 更多配置选项请参考 [shadowsocks-rust 官方文档](https://github.com/shadowsocks/shadowsocks-rust)。
 
