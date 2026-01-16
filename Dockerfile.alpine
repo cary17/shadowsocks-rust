@@ -1,10 +1,16 @@
-# Dockerfile.alpine（简化版）
-FROM alpine:latest AS downloader
+# Dockerfile.alpine
+FROM alpine:latest AS builder-base
+
+RUN apk add --no-cache ca-certificates curl tar xz
+
+# ========== 服务器构建器 ==========
+FROM builder-base AS server-builder
 ARG VERSION
 ARG TARGETARCH
 ARG TARGETVARIANT
+ARG ACTIONS_TOKEN
 
-RUN apk add --no-cache curl tar xz
+WORKDIR /tmp
 
 RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     "amd64") SS_ARCH="x86_64-unknown-linux-musl" ;; \
@@ -13,42 +19,81 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     "386") SS_ARCH="i686-unknown-linux-musl" ;; \
     *) echo "Unsupported architecture: ${TARGETARCH}${TARGETVARIANT}" && exit 1 ;; \
     esac && \
+    VERSION_NUM="${VERSION#v}" && \
     DOWNLOAD_URL="https://github.com/shadowsocks/shadowsocks-rust/releases/download/${VERSION}/shadowsocks-${VERSION}.${SS_ARCH}.tar.xz" && \
     echo "Downloading from: ${DOWNLOAD_URL}" && \
-    mkdir -p /tmp/download && \
-    cd /tmp/download && \
-    # 简单的下载重试
-    for i in 1 2 3 4 5; do \
-      curl -fsSL -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz && break || sleep 5; \
-    done && \
-    tar -xf shadowsocks.tar.xz --strip-components=1 && \
-    rm -f shadowsocks.tar.xz
+    # 尝试使用 token 下载，失败则回退到普通下载
+    if [ -n "$ACTIONS_TOKEN" ]; then \
+      echo "Using token for download..." && \
+      curl -fsSL -H "Authorization: token $ACTIONS_TOKEN" -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz || \
+      curl -fsSL -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz; \
+    else \
+      curl -fsSL -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz; \
+    fi && \
+    tar -xf shadowsocks.tar.xz && \
+    mv ssserver /usr/local/bin/ && \
+    chmod +x /usr/local/bin/ssserver && \
+    rm -rf /tmp/*
 
+# ========== 客户端构建器 ==========
+FROM builder-base AS client-builder
+ARG VERSION
+ARG TARGETARCH
+ARG TARGETVARIANT
+ARG ACTIONS_TOKEN
+
+WORKDIR /tmp
+
+RUN case "${TARGETARCH}${TARGETVARIANT}" in \
+    "amd64") SS_ARCH="x86_64-unknown-linux-musl" ;; \
+    "arm64") SS_ARCH="aarch64-unknown-linux-musl" ;; \
+    "armv7") SS_ARCH="arm-unknown-linux-musleabi" ;; \
+    "386") SS_ARCH="i686-unknown-linux-musl" ;; \
+    *) echo "Unsupported architecture: ${TARGETARCH}${TARGETVARIANT}" && exit 1 ;; \
+    esac && \
+    VERSION_NUM="${VERSION#v}" && \
+    DOWNLOAD_URL="https://github.com/shadowsocks/shadowsocks-rust/releases/download/${VERSION}/shadowsocks-${VERSION}.${SS_ARCH}.tar.xz" && \
+    echo "Downloading from: ${DOWNLOAD_URL}" && \
+    # 尝试使用 token 下载，失败则回退到普通下载
+    if [ -n "$ACTIONS_TOKEN" ]; then \
+      echo "Using token for download..." && \
+      curl -fsSL -H "Authorization: token $ACTIONS_TOKEN" -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz || \
+      curl -fsSL -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz; \
+    else \
+      curl -fsSL -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz; \
+    fi && \
+    tar -xf shadowsocks.tar.xz && \
+    mv sslocal /usr/local/bin/ && \
+    chmod +x /usr/local/bin/sslocal && \
+    rm -rf /tmp/*
+
+# ========== 最终服务器镜像 ==========
 FROM alpine:latest AS server
-RUN apk add --no-cache ca-certificates tzdata && \
-    adduser -D -u 1000 -h /home/shadowsocks shadowsocks && \
-    mkdir -p /etc/ss-rust && \
-    chown shadowsocks:shadowsocks /etc/ss-rust
 
-COPY --from=downloader /tmp/download/ssserver /usr/local/bin/
+RUN apk add --no-cache ca-certificates && \
+    mkdir -p /etc/ss-rust
+
+COPY --from=server-builder /usr/local/bin/ssserver /usr/local/bin/
 COPY entrypoint.sh /usr/local/bin/
 COPY generate-config.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/generate-config.sh /usr/local/bin/ssserver
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/generate-config.sh
 
-USER shadowsocks
+ENV SS_VARIANT=server
+
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["ssserver", "-c", "/etc/ss-rust/config.json"]
 
+# ========== 最终客户端镜像 ==========
 FROM alpine:latest AS client
-RUN apk add --no-cache ca-certificates tzdata && \
-    adduser -D -u 1000 -h /home/shadowsocks shadowsocks && \
-    mkdir -p /etc/ss-rust && \
-    chown shadowsocks:shadowsocks /etc/ss-rust
 
-COPY --from=downloader /tmp/download/sslocal /usr/local/bin/
+RUN apk add --no-cache ca-certificates && \
+    mkdir -p /etc/ss-rust
+
+COPY --from=client-builder /usr/local/bin/sslocal /usr/local/bin/
 COPY entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/sslocal
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
-USER shadowsocks
+ENV SS_VARIANT=client
+
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["sslocal", "-c", "/etc/ss-rust/config.json"]
