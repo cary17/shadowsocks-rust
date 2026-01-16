@@ -20,13 +20,23 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     echo "Downloading from: ${DOWNLOAD_URL}" && \
     mkdir -p /tmp/download && \
     cd /tmp/download && \
-    # 使用 GitHub Token 增加下载成功率
-    if [ -n "$GITHUB_TOKEN" ]; then \
-      curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz || \
-      curl -fsSL -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz; \
-    else \
-      curl -fsSL -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz; \
-    fi && \
+    # 多级下载重试
+    MAX_RETRIES=5 && \
+    for i in $(seq 1 $MAX_RETRIES); do \
+      echo "Download attempt $i of $MAX_RETRIES..."; \
+      # 尝试使用 API token（从环境变量）
+      if [ -n "$SHADOWSOCKS_API_TOKEN" ]; then \
+        echo "Using API token for download..."; \
+        curl -fsSL -H "Authorization: token $SHADOWSOCKS_API_TOKEN" -H "User-Agent: GitHub-Actions" \
+          -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz && break || sleep 5; \
+      else \
+        curl -fsSL -H "User-Agent: GitHub-Actions" -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz && break || sleep 5; \
+      fi; \
+      if [ $i -eq $MAX_RETRIES ]; then \
+        echo "Error: Failed to download after $MAX_RETRIES attempts"; \
+        exit 1; \
+      fi; \
+    done && \
     tar -xf shadowsocks.tar.xz --strip-components=1 && \
     rm -f shadowsocks.tar.xz
 
