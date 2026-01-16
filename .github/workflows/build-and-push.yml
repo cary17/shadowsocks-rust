@@ -34,7 +34,10 @@ jobs:
       - name: Check for new release
         id: check
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 使用标准的 GITHUB_TOKEN
+          GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 添加额外的 API token（可选）
+          API_TOKEN: ${{ secrets.SHADOWSOCKS_API_TOKEN }}
         run: |
           MAX_RETRIES=5
           RETRY_DELAY=10
@@ -46,15 +49,24 @@ jobs:
             for i in $(seq 1 $MAX_RETRIES); do
               echo "Attempt $i of $MAX_RETRIES: Fetching latest version..."
               
-              # 尝试使用 GitHub Token（如果可用）
-              if [ -n "$GITHUB_TOKEN" ]; then
+              # 尝试使用多个 token
+              local token=""
+              if [ -n "$API_TOKEN" ]; then
+                token="$API_TOKEN"
+              elif [ -n "$GITHUB_API_TOKEN" ]; then
+                token="$GITHUB_API_TOKEN"
+              fi
+              
+              if [ -n "$token" ]; then
                 VERSION=$(curl -fsSL \
                   -H "Accept: application/vnd.github.v3+json" \
-                  -H "Authorization: token $GITHUB_TOKEN" \
+                  -H "Authorization: token $token" \
+                  -H "User-Agent: GitHub-Actions-Shadowsocks-Build" \
                   "$url" | jq -r .tag_name)
               else
                 VERSION=$(curl -fsSL \
                   -H "Accept: application/vnd.github.v3+json" \
+                  -H "User-Agent: GitHub-Actions-Shadowsocks-Build" \
                   "$url" | jq -r .tag_name)
               fi
               
@@ -63,19 +75,40 @@ jobs:
                 return 0
               fi
               
-              echo "Failed to get version, retrying in ${RETRY_DELAY}s..."
+              echo "Failed to get version via API, retrying in ${RETRY_DELAY}s..."
               if [ $i -lt $MAX_RETRIES ]; then
                 sleep $RETRY_DELAY
               fi
             done
             
-            # 备用方案：直接从 releases 页面获取
+            # 备用方案1：使用 GitHub CLI（如果可用）
+            if command -v gh &> /dev/null; then
+              echo "Trying GitHub CLI..."
+              VERSION=$(gh api repos/shadowsocks/shadowsocks-rust/releases/latest --jq .tag_name 2>/dev/null)
+              if [ -n "$VERSION" ]; then
+                echo "$VERSION"
+                return 0
+              fi
+            fi
+            
+            # 备用方案2：直接从 releases 页面获取
             echo "Falling back to releases page..."
-            VERSION=$(curl -fsSL https://github.com/shadowsocks/shadowsocks-rust/releases \
+            VERSION=$(curl -fsSL -H "User-Agent: GitHub-Actions" \
+              https://github.com/shadowsocks/shadowsocks-rust/releases \
               | grep -o 'releases/tag/v[0-9]\+\.[0-9]\+\.[0-9]\+"' \
               | head -1 \
               | cut -d'/' -f4 \
               | tr -d '"')
+            
+            if [ -n "$VERSION" ]; then
+              echo "$VERSION"
+              return 0
+            fi
+            
+            # 备用方案3：使用硬编码的最新版本作为最后的手段
+            echo "Warning: Using fallback version detection"
+            VERSION=$(curl -fsSL https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases \
+              | jq -r '.[0].tag_name // empty' 2>/dev/null || echo "")
             
             if [ -n "$VERSION" ]; then
               echo "$VERSION"
@@ -334,6 +367,9 @@ jobs:
 
       - name: Build and push
         uses: docker/build-push-action@v5
+        env:
+          # 传递 API token 到构建环境
+          SHADOWSOCKS_API_TOKEN: ${{ secrets.SHADOWSOCKS_API_TOKEN }}
         with:
           context: .
           file: ./Dockerfile.${{ matrix.base }}
@@ -351,6 +387,8 @@ jobs:
       - name: Build and push to GHCR only (fallback)
         if: steps.build-push.outcome == 'failure'
         uses: docker/build-push-action@v5
+        env:
+          SHADOWSOCKS_API_TOKEN: ${{ secrets.SHADOWSOCKS_API_TOKEN }}
         with:
           context: .
           file: ./Dockerfile.${{ matrix.base }}
