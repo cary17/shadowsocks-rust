@@ -25,20 +25,20 @@
 
 ### 服务端标签示例
 ```
-ghcr.io/YOUR_USERNAME/shadowsocks-rust:v1.17.0-server-debian
-ghcr.io/YOUR_USERNAME/shadowsocks-rust:v1.17.0-server-alpine
-ghcr.io/YOUR_USERNAME/shadowsocks-rust:latest-server-debian
-ghcr.io/YOUR_USERNAME/shadowsocks-rust:latest-server-alpine
-ghcr.io/YOUR_USERNAME/shadowsocks-rust:v1.17.0  # Debian server 简写
-ghcr.io/YOUR_USERNAME/shadowsocks-rust:latest   # Debian server 简写
+ghcr.io/cary17/shadowsocks-rust:v1.17.0-server-debian
+ghcr.io/cary17/shadowsocks-rust:v1.17.0-server-alpine
+ghcr.io/cary17/shadowsocks-rust:latest-server-debian
+ghcr.io/cary17/shadowsocks-rust:latest-server-alpine
+ghcr.io/cary17/shadowsocks-rust:v1.17.0  # Debian server 简写
+ghcr.io/cary17/shadowsocks-rust:latest   # Debian server 简写
 ```
 
 ### 客户端标签示例
 ```
-ghcr.io/YOUR_USERNAME/shadowsocks-rust:v1.17.0-client-debian
-ghcr.io/YOUR_USERNAME/shadowsocks-rust:v1.17.0-client-alpine
-ghcr.io/YOUR_USERNAME/shadowsocks-rust:latest-client-debian
-ghcr.io/YOUR_USERNAME/shadowsocks-rust:latest-client-alpine
+ghcr.io/cary17/shadowsocks-rust:v1.17.0-client-debian
+ghcr.io/cary17/shadowsocks-rust:v1.17.0-client-alpine
+ghcr.io/cary17/shadowsocks-rust:latest-client-debian
+ghcr.io/cary17/shadowsocks-rust:latest-client-alpine
 ```
 
 ## 快速开始
@@ -53,7 +53,7 @@ docker run -d \
   -e SS_SERVER_PORT=8388 \
   -e SS_PASSWORD=your_password \
   -e SS_METHOD=aes-256-gcm \
-  ghcr.io/YOUR_USERNAME/shadowsocks-rust:latest
+  ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
 ### 客户端（使用环境变量）
@@ -67,7 +67,7 @@ docker run -d \
   -e SS_PASSWORD=your_password \
   -e SS_METHOD=aes-256-gcm \
   -e SS_LOCAL_PORT=1080 \
-  ghcr.io/YOUR_USERNAME/shadowsocks-rust:latest-client-alpine
+  ghcr.io/cary17/shadowsocks-rust:latest-client-alpine
 ```
 
 ### 使用配置文件
@@ -78,7 +78,7 @@ docker run -d \
   -p 8388:8388/tcp \
   -p 8388:8388/udp \
   -v /path/to/config:/etc/ss-rust \
-  ghcr.io/YOUR_USERNAME/shadowsocks-rust:latest
+  ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
 ## 环境变量说明
@@ -130,7 +130,7 @@ docker run -d \
   -e SS_SERVER_PORT_2=8389 \
   -e SS_PASSWORD_2=password2 \
   -e SS_METHOD_2=chacha20-ietf-poly1305 \
-  ghcr.io/YOUR_USERNAME/shadowsocks-rust:latest
+  ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
 ## 支持的加密方法
@@ -153,7 +153,7 @@ version: '3.8'
 
 services:
   shadowsocks-server:
-    image: ghcr.io/YOUR_USERNAME/shadowsocks-rust:latest
+    image: ghcr.io/cary17/shadowsocks-rust:latest
     container_name: ss-server
     restart: unless-stopped
     ports:
@@ -174,7 +174,7 @@ version: '3.8'
 
 services:
   shadowsocks-client:
-    image: ghcr.io/YOUR_USERNAME/shadowsocks-rust:latest-client-alpine
+    image: ghcr.io/cary17/shadowsocks-rust:latest-client-alpine
     container_name: ss-client
     restart: unless-stopped
     ports:
@@ -250,8 +250,8 @@ services:
 
 ## 镜像仓库
 
-- **GitHub Container Registry**: `ghcr.io/YOUR_USERNAME/shadowsocks-rust`
-- **Docker Hub**（可选）: `YOUR_DOCKERHUB_USERNAME/shadowsocks-rust`
+- **GitHub Container Registry**: `ghcr.io/cary17/shadowsocks-rust:latest`
+- **Docker Hub**（可选）: `cary17/shadowsocks-rust:latest`
 
 ## 选择合适的镜像
 
