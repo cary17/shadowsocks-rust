@@ -1,448 +1,68 @@
-name: Build and Push Docker Images
+# Dockerfile.debian（简化版）
+ARG DEBIAN_VERSION=13
 
-on:
-  schedule:
-    - cron: '0 * * * *'
-  workflow_dispatch:
-    inputs:
-      debian_version:
-        description: 'Debian version'
-        required: false
-        default: 'stable'
-      force_build:
-        description: 'Force build even if version exists'
-        required: false
-        default: 'false'
-      version:
-        description: 'Shadowsocks-rust version (e.g., v1.17.0, leave empty for latest)'
-        required: false
-        default: ''
-        type: string
+FROM debian:${DEBIAN_VERSION}-slim AS downloader
+ARG VERSION
+ARG TARGETARCH
+ARG TARGETVARIANT
 
-env:
-  GHCR_REGISTRY: ghcr.io
-  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/shadowsocks-rust
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    xz-utils && \
+    rm -rf /var/lib/apt/lists/*
 
-jobs:
-  check-version:
-    runs-on: ubuntu-latest
-    outputs:
-      new_version: ${{ steps.check.outputs.new_version }}
-      should_build: ${{ steps.check.outputs.should_build }}
-      version_source: ${{ steps.check.outputs.version_source }}
-    steps:
-      - name: Check for new release
-        id: check
-        env:
-          # 使用标准的 GITHUB_TOKEN
-          GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 添加额外的 API token（可选）
-          API_TOKEN: ${{ secrets.ACTIONS_TOKEN }}
-        run: |
-          MAX_RETRIES=5
-          RETRY_DELAY=10
-          
-          # 清理版本号函数
-          clean_version() {
-            local version="$1"
-            # 移除可能的空格、换行符等
-            version=$(echo "$version" | tr -d '\n\r\t ' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-            # 确保以 v 开头
-            if [[ ! "$version" =~ ^v ]]; then
-              version="v$version"
-            fi
-            echo "$version"
-          }
-          
-          # 设置输出函数（确保格式正确）
-          set_output() {
-            local name="$1"
-            local value="$2"
-            # 移除所有特殊字符，只保留版本号字符
-            value=$(echo "$value" | tr -cd 'v0-9.')
-            echo "$name=$value" >> "$GITHUB_OUTPUT"
-          }
-          
-          # 获取最新版本（带重试和多种方式）
-          get_latest_version() {
-            local url="https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest"
-            
-            for i in $(seq 1 $MAX_RETRIES); do
-              echo "Attempt $i of $MAX_RETRIES: Fetching latest version..."
-              
-              # 尝试使用多个 token
-              local token=""
-              if [ -n "$API_TOKEN" ]; then
-                token="$API_TOKEN"
-              elif [ -n "$GITHUB_API_TOKEN" ]; then
-                token="$GITHUB_API_TOKEN"
-              fi
-              
-              if [ -n "$token" ]; then
-                VERSION=$(curl -fsSL \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  -H "Authorization: token $token" \
-                  -H "User-Agent: GitHub-Actions-Shadowsocks-Build" \
-                  "$url" | jq -r .tag_name)
-              else
-                VERSION=$(curl -fsSL \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  -H "User-Agent: GitHub-Actions-Shadowsocks-Build" \
-                  "$url" | jq -r .tag_name)
-              fi
-              
-              if [ -n "$VERSION" ] && [ "$VERSION" != "null" ]; then
-                echo "Raw version from API: '$VERSION'"
-                VERSION=$(clean_version "$VERSION")
-                echo "Cleaned version: '$VERSION'"
-                echo "$VERSION"
-                return 0
-              fi
-              
-              echo "Failed to get version via API, retrying in ${RETRY_DELAY}s..."
-              if [ $i -lt $MAX_RETRIES ]; then
-                sleep $RETRY_DELAY
-              fi
-            done
-            
-            # 备用方案1：使用 GitHub CLI（如果可用）
-            if command -v gh &> /dev/null; then
-              echo "Trying GitHub CLI..."
-              VERSION=$(gh api repos/shadowsocks/shadowsocks-rust/releases/latest --jq .tag_name 2>/dev/null)
-              if [ -n "$VERSION" ]; then
-                VERSION=$(clean_version "$VERSION")
-                echo "Version from GitHub CLI: '$VERSION'"
-                echo "$VERSION"
-                return 0
-              fi
-            fi
-            
-            # 备用方案2：直接从 releases 页面获取
-            echo "Falling back to releases page..."
-            VERSION=$(curl -fsSL -H "User-Agent: GitHub-Actions" \
-              https://github.com/shadowsocks/shadowsocks-rust/releases \
-              | grep -o 'releases/tag/v[0-9]\+\.[0-9]\+\.[0-9]\+"' \
-              | head -1 \
-              | cut -d'/' -f4 \
-              | tr -d '"')
-            
-            if [ -n "$VERSION" ]; then
-              VERSION=$(clean_version "$VERSION")
-              echo "Version from releases page: '$VERSION'"
-              echo "$VERSION"
-              return 0
-            fi
-            
-            # 备用方案3：获取所有 releases
-            echo "Trying to get from releases list..."
-            VERSION=$(curl -fsSL \
-              -H "Accept: application/vnd.github.v3+json" \
-              https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases \
-              | jq -r '.[0].tag_name // empty')
-            
-            if [ -n "$VERSION" ]; then
-              VERSION=$(clean_version "$VERSION")
-              echo "Version from releases list: '$VERSION'"
-              echo "$VERSION"
-              return 0
-            fi
-            
-            echo "ERROR: Failed to get version after all attempts"
-            return 1
-          }
-          
-          # 检查是否有手动指定的版本
-          MANUAL_VERSION="${{ github.event.inputs.version }}"
-          
-          if [ -n "$MANUAL_VERSION" ]; then
-            echo "Using manually specified version: $MANUAL_VERSION"
-            MANUAL_VERSION=$(clean_version "$MANUAL_VERSION")
-            echo "Cleaned manual version: '$MANUAL_VERSION'"
-            
-            set_output "new_version" "$MANUAL_VERSION"
-            set_output "version_source" "manual"
-            
-            # 对于手动指定的版本，检查是否需要构建
-            if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
-              echo "Force build enabled for manual version"
-              set_output "should_build" "true"
-              exit 0
-            fi
-            
-            # 检查 GHCR 是否已存在该版本
-            GHCR_EXISTS="false"
-            for i in $(seq 1 $MAX_RETRIES); do
-              echo "Attempt $i of $MAX_RETRIES: Checking if version exists in GHCR..."
-              
-              TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/shadowsocks-rust:pull" | jq -r '.token // empty')
-              
-              if [ -n "$TOKEN" ]; then
-                GHCR_VERSIONS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
-                  "https://ghcr.io/v2/${{ github.repository_owner }}/shadowsocks-rust/tags/list" 2>/dev/null | \
-                  jq -r '.tags[]?')
-                
-                # 检查是否已存在该版本（任何变体）
-                if echo "$GHCR_VERSIONS" | grep -q "^${MANUAL_VERSION}\(-.*\)\?$"; then
-                  echo "Version $MANUAL_VERSION already exists in GHCR"
-                  GHCR_EXISTS="true"
-                  break
-                else
-                  echo "Version $MANUAL_VERSION not found in GHCR"
-                  break
-                fi
-              else
-                echo "Failed to get GHCR token"
-                if [ $i -eq $MAX_RETRIES ]; then
-                  break
-                else
-                  sleep $RETRY_DELAY
-                fi
-              fi
-            done
-            
-            if [ "$GHCR_EXISTS" = "true" ]; then
-              set_output "should_build" "false"
-            else
-              set_output "should_build" "true"
-            fi
-            
-            exit 0
-          fi
-          
-          # 自动获取最新版本
-          echo "No manual version specified, fetching latest release..."
-          set_output "version_source" "auto"
-          
-          LATEST_VERSION=$(get_latest_version)
-          if [ $? -ne 0 ] || [ -z "$LATEST_VERSION" ]; then
-            echo "Error: Failed to get shadowsocks-rust version"
-            exit 1
-          fi
-          
-          echo "Latest shadowsocks-rust version: '$LATEST_VERSION'"
-          set_output "new_version" "$LATEST_VERSION"
-          
-          # 检查 GHCR 中的最新版本
-          GHCR_LATEST=""
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "Attempt $i of $MAX_RETRIES: Fetching GHCR latest version..."
-            
-            TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/shadowsocks-rust:pull" | jq -r '.token // empty')
-            
-            if [ -n "$TOKEN" ]; then
-              GHCR_VERSIONS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
-                "https://ghcr.io/v2/${{ github.repository_owner }}/shadowsocks-rust/tags/list" 2>/dev/null)
-              
-              if [ $? -eq 0 ]; then
-                GHCR_LATEST=$(echo "$GHCR_VERSIONS" | jq -r '.tags[]? | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))' | sort -V | tail -n1)
-                
-                if [ -n "$GHCR_LATEST" ]; then
-                  GHCR_LATEST=$(clean_version "$GHCR_LATEST")
-                  echo "GHCR has existing version: '$GHCR_LATEST'"
-                  break
-                else
-                  echo "No valid versions found in GHCR"
-                  break
-                fi
-              fi
-            fi
-            
-            echo "Failed to get GHCR info, retrying in ${RETRY_DELAY}s..."
-            if [ $i -lt $MAX_RETRIES ]; then
-              sleep $RETRY_DELAY
-            else
-              echo "Warning: Failed to get GHCR info, will treat as no existing version"
-              GHCR_LATEST=""
-              break
-            fi
-          done
-          
-          echo "GHCR latest version: '${GHCR_LATEST:-none}'"
-          
-          if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
-            echo "Force build enabled"
-            set_output "should_build" "true"
-          elif [ -z "$GHCR_LATEST" ]; then
-            echo "No existing version in GHCR, will build"
-            set_output "should_build" "true"
-          else
-            LATEST_NUM="${LATEST_VERSION#v}"
-            GHCR_NUM="${GHCR_LATEST#v}"
-            
-            HIGHER_VERSION=$(printf "%s\n%s" "$LATEST_NUM" "$GHCR_NUM" | sort -V | tail -n1)
-            
-            if [ "$LATEST_NUM" = "$GHCR_NUM" ]; then
-              echo "Versions are the same, skipping build"
-              set_output "should_build" "false"
-            elif [ "$LATEST_NUM" = "$HIGHER_VERSION" ]; then
-              echo "New version detected: $LATEST_VERSION > $GHCR_LATEST"
-              set_output "should_build" "true"
-            else
-              echo "GHCR version ($GHCR_LATEST) is newer than latest release ($LATEST_VERSION), skipping build"
-              set_output "should_build" "false"
-            fi
-          fi
+RUN case "${TARGETARCH}${TARGETVARIANT}" in \
+    "amd64") SS_ARCH="x86_64-unknown-linux-gnu" ;; \
+    "arm64") SS_ARCH="aarch64-unknown-linux-gnu" ;; \
+    "armv7") SS_ARCH="arm-unknown-linux-gnueabi" ;; \
+    *) echo "Unsupported architecture: ${TARGETARCH}${TARGETVARIANT}" && exit 1 ;; \
+    esac && \
+    DOWNLOAD_URL="https://github.com/shadowsocks/shadowsocks-rust/releases/download/${VERSION}/shadowsocks-${VERSION}.${SS_ARCH}.tar.xz" && \
+    echo "Downloading from: ${DOWNLOAD_URL}" && \
+    mkdir -p /tmp/download && \
+    cd /tmp/download && \
+    # 简单的下载重试
+    for i in 1 2 3 4 5; do \
+      curl -fsSL -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz && break || sleep 5; \
+    done && \
+    tar -xf shadowsocks.tar.xz --strip-components=1 && \
+    rm -f shadowsocks.tar.xz
 
-  build-images:
-    needs: check-version
-    if: needs.check-version.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      matrix:
-        base: [debian, alpine]
-        variant: [server, client]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+FROM debian:${DEBIAN_VERSION}-slim AS server
+ARG DEBIAN_VERSION=13
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates tzdata && \
+    rm -rf /var/lib/apt/lists/* && \
+    adduser --disabled-password --gecos "" --uid 1000 shadowsocks && \
+    mkdir -p /etc/ss-rust && \
+    chown shadowsocks:shadowsocks /etc/ss-rust
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+COPY --from=downloader /tmp/download/ssserver /usr/local/bin/
+COPY entrypoint.sh /usr/local/bin/
+COPY generate-config.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/generate-config.sh /usr/local/bin/ssserver
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.GHCR_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+USER shadowsocks
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["ssserver", "-c", "/etc/ss-rust/config.json"]
 
-      - name: Check Docker Hub credentials
-        id: dockerhub
-        run: |
-          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
-            echo "enabled=true" >> $GITHUB_OUTPUT
-          else
-            echo "enabled=false" >> $GITHUB_OUTPUT
-          fi
+FROM debian:${DEBIAN_VERSION}-slim AS client
+ARG DEBIAN_VERSION=13
 
-      - name: Log in to Docker Hub
-        if: steps.dockerhub.outputs.enabled == 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates tzdata && \
+    rm -rf /var/lib/apt/lists/* && \
+    adduser --disabled-password --gecos "" --uid 1000 shadowsocks && \
+    mkdir -p /etc/ss-rust && \
+    chown shadowsocks:shadowsocks /etc/ss-rust
 
-      - name: Prepare tags and platforms
-        id: prepare
-        run: |
-          REPO_NAME="${{ github.event.repository.name }}"
-          VERSION="${{ needs.check-version.outputs.new_version }}"
-          VERSION_SOURCE="${{ needs.check-version.outputs.version_source }}"
-          BASE="${{ matrix.base }}"
-          VARIANT="${{ matrix.variant }}"
-          
-          echo "Building version: $VERSION (source: $VERSION_SOURCE)"
-          
-          # 验证版本号格式
-          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Invalid version format: $VERSION"
-            exit 1
-          fi
-          
-          # 设置平台
-          if [ "$BASE" = "alpine" ]; then
-            PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/386"
-          else
-            PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7"
-          fi
-          echo "platforms=$PLATFORMS" >> $GITHUB_OUTPUT
-          
-          # 生成标签
-          if [ "$VARIANT" = "server" ]; then
-            SUFFIX=""
-          else
-            SUFFIX="-$VARIANT"
-          fi
-          
-          TAGS="${{ env.GHCR_IMAGE }}:${VERSION}${SUFFIX}-${BASE}
-          ${{ env.GHCR_IMAGE }}:latest${SUFFIX}-${BASE}"
-          
-          # 对于手动指定的版本，不添加 "latest" 标签（只添加带版本号的）
-          if [ "$VERSION_SOURCE" = "manual" ]; then
-            TAGS="${{ env.GHCR_IMAGE }}:${VERSION}${SUFFIX}-${BASE}"
-          fi
-          
-          # server 变体额外添加无后缀标签（作为默认）
-          if [ "$VARIANT" = "server" ] && [ "$BASE" = "debian" ]; then
-            if [ "$VERSION_SOURCE" = "manual" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE }}:${VERSION}"
-            else
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE }}:${VERSION}
-              ${{ env.GHCR_IMAGE }}:latest"
-            fi
-          fi
-          
-          if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
-            if [ "$VERSION_SOURCE" = "manual" ]; then
-              TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${VERSION}${SUFFIX}-${BASE}"
-            else
-              TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${VERSION}${SUFFIX}-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:latest${SUFFIX}-${BASE}"
-            fi
-            
-            if [ "$VARIANT" = "server" ] && [ "$BASE" = "debian" ]; then
-              if [ "$VERSION_SOURCE" = "manual" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${VERSION}"
-              else
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:${VERSION}
-                ${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}:latest"
-              fi
-            fi
-          fi
-          
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAGS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+COPY --from=downloader /tmp/download/sslocal /usr/local/bin/
+COPY entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/sslocal
 
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        env:
-          # 传递 API token 到构建环境
-          ACTIONS_TOKEN: ${{ secrets.ACTIONS_TOKEN }}
-        with:
-          context: .
-          file: ./Dockerfile.${{ matrix.base }}
-          platforms: ${{ steps.prepare.outputs.platforms }}
-          push: true
-          tags: ${{ steps.prepare.outputs.tags }}
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-          cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
-          target: ${{ matrix.variant }}
-        continue-on-error: true
-        id: build-push
-
-      - name: Build and push to GHCR only (fallback)
-        if: steps.build-push.outcome == 'failure'
-        uses: docker/build-push-action@v5
-        env:
-          ACTIONS_TOKEN: ${{ secrets.ACTIONS_TOKEN }}
-        with:
-          context: .
-          file: ./Dockerfile.${{ matrix.base }}
-          platforms: ${{ steps.prepare.outputs.platforms }}
-          push: true
-          tags: |
-            ${{ env.GHCR_IMAGE }}:${{ needs.check-version.outputs.new_version }}-${{ matrix.variant }}-${{ matrix.base }}
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-          cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
-          target: ${{ matrix.variant }}
-
-      - name: Notify about Docker Hub push failure
-        if: steps.build-push.outcome == 'failure'
-        run: |
-          echo "::warning::Failed to push to Docker Hub. Image pushed to GHCR only."
+USER shadowsocks
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["sslocal", "-c", "/etc/ss-rust/config.json"]
