@@ -37,7 +37,7 @@ jobs:
           # 使用标准的 GITHUB_TOKEN
           GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 添加额外的 API token（可选）
-          API_TOKEN: ${{ secrets.SHADOWSOCKS_API_TOKEN }}
+          API_TOKEN: ${{ secrets.ACTIONS_TOKEN }}
         run: |
           MAX_RETRIES=5
           RETRY_DELAY=10
@@ -369,7 +369,7 @@ jobs:
         uses: docker/build-push-action@v5
         env:
           # 传递 API token 到构建环境
-          SHADOWSOCKS_API_TOKEN: ${{ secrets.SHADOWSOCKS_API_TOKEN }}
+          ACTIONS_TOKEN: ${{ secrets.ACTIONS_TOKEN }}
         with:
           context: .
           file: ./Dockerfile.${{ matrix.base }}
@@ -388,7 +388,7 @@ jobs:
         if: steps.build-push.outcome == 'failure'
         uses: docker/build-push-action@v5
         env:
-          SHADOWSOCKS_API_TOKEN: ${{ secrets.SHADOWSOCKS_API_TOKEN }}
+          ACTIONS_TOKEN: ${{ secrets.ACTIONS_TOKEN }}
         with:
           context: .
           file: ./Dockerfile.${{ matrix.base }}
