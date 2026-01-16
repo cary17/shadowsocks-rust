@@ -1,5 +1,5 @@
 # Dockerfile.debian（简化版）
-ARG DEBIAN_VERSION=13
+ARG DEBIAN_VERSION=stable
 
 FROM debian:${DEBIAN_VERSION}-slim AS downloader
 ARG VERSION
