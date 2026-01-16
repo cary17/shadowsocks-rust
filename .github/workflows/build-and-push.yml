@@ -33,9 +33,58 @@ jobs:
     steps:
       - name: Check for new release
         id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           MAX_RETRIES=5
           RETRY_DELAY=10
+          
+          # 获取最新版本（带重试和多种方式）
+          get_latest_version() {
+            local url="https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest"
+            
+            for i in $(seq 1 $MAX_RETRIES); do
+              echo "Attempt $i of $MAX_RETRIES: Fetching latest version..."
+              
+              # 尝试使用 GitHub Token（如果可用）
+              if [ -n "$GITHUB_TOKEN" ]; then
+                VERSION=$(curl -fsSL \
+                  -H "Accept: application/vnd.github.v3+json" \
+                  -H "Authorization: token $GITHUB_TOKEN" \
+                  "$url" | jq -r .tag_name)
+              else
+                VERSION=$(curl -fsSL \
+                  -H "Accept: application/vnd.github.v3+json" \
+                  "$url" | jq -r .tag_name)
+              fi
+              
+              if [ -n "$VERSION" ] && [ "$VERSION" != "null" ]; then
+                echo "$VERSION"
+                return 0
+              fi
+              
+              echo "Failed to get version, retrying in ${RETRY_DELAY}s..."
+              if [ $i -lt $MAX_RETRIES ]; then
+                sleep $RETRY_DELAY
+              fi
+            done
+            
+            # 备用方案：直接从 releases 页面获取
+            echo "Falling back to releases page..."
+            VERSION=$(curl -fsSL https://github.com/shadowsocks/shadowsocks-rust/releases \
+              | grep -o 'releases/tag/v[0-9]\+\.[0-9]\+\.[0-9]\+"' \
+              | head -1 \
+              | cut -d'/' -f4 \
+              | tr -d '"')
+            
+            if [ -n "$VERSION" ]; then
+              echo "$VERSION"
+              return 0
+            fi
+            
+            echo "ERROR: Failed to get version after all attempts"
+            return 1
+          }
           
           # 检查是否有手动指定的版本
           MANUAL_VERSION="${{ github.event.inputs.version }}"
@@ -65,7 +114,7 @@ jobs:
               
               if [ -n "$TOKEN" ]; then
                 GHCR_VERSIONS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
-                  "https://ghcr.io/v2/${{ github.repository_owner }}/shadowsocks-rust/tags/list" | \
+                  "https://ghcr.io/v2/${{ github.repository_owner }}/shadowsocks-rust/tags/list" 2>/dev/null | \
                   jq -r '.tags[]?')
                 
                 # 检查是否已存在该版本（任何变体）
@@ -94,24 +143,15 @@ jobs:
           echo "No manual version specified, fetching latest release..."
           echo "version_source=auto" >> $GITHUB_OUTPUT
           
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "Attempt $i of $MAX_RETRIES: Fetching shadowsocks-rust latest version..."
-            LATEST_VERSION=$(curl -s https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest | jq -r .tag_name)
-            
-            if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "null" ]; then
-              echo "Successfully got shadowsocks-rust version: $LATEST_VERSION"
-              break
-            else
-              echo "Failed to get valid version, retrying in ${RETRY_DELAY}s..."
-              if [ $i -lt $MAX_RETRIES ]; then
-                sleep $RETRY_DELAY
-              else
-                echo "Error: Failed to get shadowsocks-rust version after $MAX_RETRIES attempts"
-                exit 1
-              fi
-            fi
-          done
+          LATEST_VERSION=$(get_latest_version)
+          if [ $? -ne 0 ] || [ -z "$LATEST_VERSION" ]; then
+            echo "Error: Failed to get shadowsocks-rust version"
+            exit 1
+          fi
           
+          echo "Latest shadowsocks-rust version: $LATEST_VERSION"
+          
+          # 检查 GHCR 中的最新版本
           GHCR_LATEST=""
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i of $MAX_RETRIES: Fetching GHCR latest version..."
@@ -119,30 +159,32 @@ jobs:
             TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/shadowsocks-rust:pull" | jq -r '.token // empty')
             
             if [ -n "$TOKEN" ]; then
-              GHCR_LATEST=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
-                "https://ghcr.io/v2/${{ github.repository_owner }}/shadowsocks-rust/tags/list" | \
-                jq -r '.tags[]? | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))' | sort -V | tail -n1)
+              GHCR_VERSIONS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+                "https://ghcr.io/v2/${{ github.repository_owner }}/shadowsocks-rust/tags/list" 2>/dev/null)
               
-              if [ -n "$GHCR_LATEST" ]; then
-                echo "GHCR has existing version: $GHCR_LATEST"
-                break
-              else
-                echo "No valid versions found in GHCR"
-                break
+              if [ $? -eq 0 ]; then
+                GHCR_LATEST=$(echo "$GHCR_VERSIONS" | jq -r '.tags[]? | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))' | sort -V | tail -n1)
+                
+                if [ -n "$GHCR_LATEST" ]; then
+                  echo "GHCR has existing version: $GHCR_LATEST"
+                  break
+                else
+                  echo "No valid versions found in GHCR"
+                  break
+                fi
               fi
+            fi
+            
+            echo "Failed to get GHCR info, retrying in ${RETRY_DELAY}s..."
+            if [ $i -lt $MAX_RETRIES ]; then
+              sleep $RETRY_DELAY
             else
-              echo "Failed to get GHCR token, retrying in ${RETRY_DELAY}s..."
-              if [ $i -lt $MAX_RETRIES ]; then
-                sleep $RETRY_DELAY
-              else
-                echo "Warning: Failed to get GHCR token, will treat as no existing version"
-                GHCR_LATEST=""
-                break
-              fi
+              echo "Warning: Failed to get GHCR info, will treat as no existing version"
+              GHCR_LATEST=""
+              break
             fi
           done
           
-          echo "Latest shadowsocks-rust version: $LATEST_VERSION"
           echo "GHCR latest version: ${GHCR_LATEST:-none}"
           
           if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
