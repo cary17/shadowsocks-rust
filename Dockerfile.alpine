@@ -1,7 +1,4 @@
-# Dockerfile.alpine
-FROM alpine:latest AS base
-
-# ========== 下载器阶段（最小化） ==========
+# Dockerfile.alpine（简化版）
 FROM alpine:latest AS downloader
 ARG VERSION
 ARG TARGETARCH
@@ -20,57 +17,38 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     echo "Downloading from: ${DOWNLOAD_URL}" && \
     mkdir -p /tmp/download && \
     cd /tmp/download && \
-    # 多级下载重试
-    MAX_RETRIES=5 && \
-    for i in $(seq 1 $MAX_RETRIES); do \
-      echo "Download attempt $i of $MAX_RETRIES..."; \
-      # 尝试使用 API token（从环境变量）
-      if [ -n "$ACTIONS_TOKEN" ]; then \
-        echo "Using API token for download..."; \
-        curl -fsSL -H "Authorization: token $ACTIONS_TOKEN" -H "User-Agent: GitHub-Actions" \
-          -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz && break || sleep 5; \
-      else \
-        curl -fsSL -H "User-Agent: GitHub-Actions" -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz && break || sleep 5; \
-      fi; \
-      if [ $i -eq $MAX_RETRIES ]; then \
-        echo "Error: Failed to download after $MAX_RETRIES attempts"; \
-        exit 1; \
-      fi; \
+    # 简单的下载重试
+    for i in 1 2 3 4 5; do \
+      curl -fsSL -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz && break || sleep 5; \
     done && \
     tar -xf shadowsocks.tar.xz --strip-components=1 && \
     rm -f shadowsocks.tar.xz
 
-# ========== 最终服务器镜像 ==========
 FROM alpine:latest AS server
 RUN apk add --no-cache ca-certificates tzdata && \
     adduser -D -u 1000 -h /home/shadowsocks shadowsocks && \
     mkdir -p /etc/ss-rust && \
     chown shadowsocks:shadowsocks /etc/ss-rust
 
-COPY --from=downloader /tmp/download/ssserver /usr/local/bin/ssserver
+COPY --from=downloader /tmp/download/ssserver /usr/local/bin/
 COPY entrypoint.sh /usr/local/bin/
 COPY generate-config.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/generate-config.sh /usr/local/bin/ssserver
 
-ENV SS_VARIANT=server
 USER shadowsocks
-
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["ssserver", "-c", "/etc/ss-rust/config.json"]
 
-# ========== 最终客户端镜像 ==========
 FROM alpine:latest AS client
 RUN apk add --no-cache ca-certificates tzdata && \
     adduser -D -u 1000 -h /home/shadowsocks shadowsocks && \
     mkdir -p /etc/ss-rust && \
     chown shadowsocks:shadowsocks /etc/ss-rust
 
-COPY --from=downloader /tmp/download/sslocal /usr/local/bin/sslocal
+COPY --from=downloader /tmp/download/sslocal /usr/local/bin/
 COPY entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/sslocal
 
-ENV SS_VARIANT=client
 USER shadowsocks
-
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["sslocal", "-c", "/etc/ss-rust/config.json"]
