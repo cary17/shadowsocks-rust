@@ -25,9 +25,9 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     for i in $(seq 1 $MAX_RETRIES); do \
       echo "Download attempt $i of $MAX_RETRIES..."; \
       # 尝试使用 API token（从环境变量）
-      if [ -n "$SHADOWSOCKS_API_TOKEN" ]; then \
+      if [ -n "$ACTIONS_TOKEN" ]; then \
         echo "Using API token for download..."; \
-        curl -fsSL -H "Authorization: token $SHADOWSOCKS_API_TOKEN" -H "User-Agent: GitHub-Actions" \
+        curl -fsSL -H "Authorization: token $ACTIONS_TOKEN" -H "User-Agent: GitHub-Actions" \
           -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz && break || sleep 5; \
       else \
         curl -fsSL -H "User-Agent: GitHub-Actions" -L "${DOWNLOAD_URL}" -o shadowsocks.tar.xz && break || sleep 5; \
