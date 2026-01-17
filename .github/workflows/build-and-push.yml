@@ -41,6 +41,7 @@ jobs:
           
           # 检查是否有手动指定的版本
           MANUAL_VERSION="${{ github.event.inputs.version }}"
+          FORCE_BUILD="${{ github.event.inputs.force_build }}"
           
           if [ -n "$MANUAL_VERSION" ]; then
             echo "Using manually specified version: $MANUAL_VERSION"
@@ -53,14 +54,14 @@ jobs:
             echo "new_version=${MANUAL_VERSION}" >> $GITHUB_OUTPUT
             echo "version_source=manual" >> $GITHUB_OUTPUT
             
-            # 对于手动指定的版本，检查是否需要构建
-            if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
-              echo "Force build enabled for manual version"
+            # 检查是否强制构建
+            if [ "$FORCE_BUILD" = "true" ]; then
+              echo "Force build enabled for specified version: $MANUAL_VERSION"
               echo "should_build=true" >> $GITHUB_OUTPUT
               exit 0
             fi
             
-            # 检查三个仓库是否已存在该版本
+            # 非强制构建：检查三个仓库是否已存在该版本
             REPOS=("shadowsocks-rust" "ssserver-rust" "sslocal-rust")
             VERSION_EXISTS=false
             
@@ -104,10 +105,49 @@ jobs:
             exit 0
           fi
           
-          # 自动获取最新版本
+          # 没有指定版本，获取最新版本
           echo "No manual version specified, fetching latest release..."
           echo "version_source=auto" >> $GITHUB_OUTPUT
           
+          # 如果强制构建，直接获取最新版本并构建
+          if [ "$FORCE_BUILD" = "true" ]; then
+            echo "Force build enabled, fetching latest version only..."
+            
+            for i in $(seq 1 $MAX_RETRIES); do
+              echo "Attempt $i of $MAX_RETRIES: Fetching shadowsocks-rust latest version..."
+              
+              # 尝试使用 API token
+              if [ -n "$ACTIONS_TOKEN" ]; then
+                LATEST_VERSION=$(curl -fsSL \
+                  -H "Authorization: token $ACTIONS_TOKEN" \
+                  -H "Accept: application/vnd.github.v3+json" \
+                  https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest | jq -r .tag_name)
+              else
+                LATEST_VERSION=$(curl -fsSL \
+                  -H "Accept: application/vnd.github.v3+json" \
+                  https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest | jq -r .tag_name)
+              fi
+              
+              if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "null" ]; then
+                echo "Successfully got shadowsocks-rust version: $LATEST_VERSION"
+                # 清理版本号
+                LATEST_VERSION=$(echo "$LATEST_VERSION" | tr -d '\n\r\t ')
+                echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+                echo "should_build=true" >> $GITHUB_OUTPUT
+                exit 0
+              else
+                echo "Failed to get valid version, retrying in ${RETRY_DELAY}s..."
+                if [ $i -lt $MAX_RETRIES ]; then
+                  sleep $RETRY_DELAY
+                else
+                  echo "Error: Failed to get shadowsocks-rust version after $MAX_RETRIES attempts"
+                  exit 1
+                fi
+              fi
+            done
+          fi
+          
+          # 正常流程：获取最新版本并与GHCR比较
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i of $MAX_RETRIES: Fetching shadowsocks-rust latest version..."
             
@@ -185,46 +225,40 @@ jobs:
           echo "  ssserver-rust: ${LATEST_VERSIONS[1]:-none}"
           echo "  sslocal-rust: ${LATEST_VERSIONS[2]:-none}"
           
-          if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
-            echo "Force build enabled"
-            echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-            echo "should_build=true" >> $GITHUB_OUTPUT
-          else
-            # 检查是否需要构建：只要有一个仓库没有该版本或版本较低，就需要构建
-            NEED_BUILD=false
-            LATEST_NUM="${LATEST_VERSION#v}"
+          # 检查是否需要构建：只要有一个仓库没有该版本或版本较低，就需要构建
+          NEED_BUILD=false
+          LATEST_NUM="${LATEST_VERSION#v}"
+          
+          for i in "${!REPOS[@]}"; do
+            REPO="${REPOS[$i]}"
+            REPO_VERSION="${LATEST_VERSIONS[$i]}"
             
-            for i in "${!REPOS[@]}"; do
-              REPO="${REPOS[$i]}"
-              REPO_VERSION="${LATEST_VERSIONS[$i]}"
+            if [ -z "$REPO_VERSION" ]; then
+              echo "$REPO has no existing version, will build"
+              NEED_BUILD=true
+              break
+            else
+              REPO_NUM="${REPO_VERSION#v}"
               
-              if [ -z "$REPO_VERSION" ]; then
-                echo "$REPO has no existing version, will build"
+              if [ "$LATEST_NUM" = "$REPO_NUM" ]; then
+                echo "$REPO has same version: $REPO_VERSION"
+              elif [ "$(printf "%s\n%s" "$LATEST_NUM" "$REPO_NUM" | sort -V | tail -n1)" = "$LATEST_NUM" ]; then
+                echo "$REPO has older version ($REPO_VERSION < $LATEST_VERSION), will build"
                 NEED_BUILD=true
                 break
               else
-                REPO_NUM="${REPO_VERSION#v}"
-                
-                if [ "$LATEST_NUM" = "$REPO_NUM" ]; then
-                  echo "$REPO has same version: $REPO_VERSION"
-                elif [ "$(printf "%s\n%s" "$LATEST_NUM" "$REPO_NUM" | sort -V | tail -n1)" = "$LATEST_NUM" ]; then
-                  echo "$REPO has older version ($REPO_VERSION < $LATEST_VERSION), will build"
-                  NEED_BUILD=true
-                  break
-                else
-                  echo "$REPO has newer version ($REPO_VERSION > $LATEST_VERSION), skipping"
-                fi
+                echo "$REPO has newer version ($REPO_VERSION > $LATEST_VERSION), skipping"
               fi
-            done
-            
-            if [ "$NEED_BUILD" = true ]; then
-              echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-              echo "should_build=true" >> $GITHUB_OUTPUT
-            else
-              echo "All repositories have latest version or newer, skipping build"
-              echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-              echo "should_build=false" >> $GITHUB_OUTPUT
             fi
+          done
+          
+          if [ "$NEED_BUILD" = true ]; then
+            echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "All repositories have latest version or newer, skipping build"
+            echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+            echo "should_build=false" >> $GITHUB_OUTPUT
           fi
 
   build-images:
@@ -280,8 +314,9 @@ jobs:
           VERSION_SOURCE="${{ needs.check-version.outputs.version_source }}"
           BASE="${{ matrix.base }}"
           VARIANT="${{ matrix.variant }}"
+          FORCE_BUILD="${{ github.event.inputs.force_build }}"
           
-          echo "Building version: $VERSION (source: $VERSION_SOURCE)"
+          echo "Building version: $VERSION (source: $VERSION_SOURCE, force: $FORCE_BUILD)"
           
           # 验证版本号格式
           if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -303,81 +338,69 @@ jobs:
           # 根据变体生成不同的标签
           if [ "$VARIANT" = "server" ]; then
             # 主仓库标签（shadowsocks-rust）
-            if [ "$VERSION_SOURCE" != "manual" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:server-${BASE}"
-            else
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server-${BASE}"
-            fi
+            # 所有构建都必须有带版本号的标签
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server-${BASE}"
             
             # 服务端专用仓库（ssserver-rust）- 去掉server后缀
-            if [ "$VERSION_SOURCE" != "manual" ]; then
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}-${BASE}"
+            
+            # 自动构建时添加latest标签（非手动或非强制构建）
+            if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
               TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}-${BASE}
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server-${BASE}
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:server-${BASE}
               ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest-${BASE}
               ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${BASE}"
-            else
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}-${BASE}"
             fi
             
             # Debian基础镜像的特殊标签
             if [ "$BASE" = "debian" ]; then
-              if [ "$VERSION_SOURCE" != "manual" ]; then
+              # 所有构建都必须有带版本号的标签
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}
+              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}"
+              
+              # 自动构建时添加latest标签（非手动或非强制构建）
+              if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
                 TAGS="$TAGS
-                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}
                 ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest
                 ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:server
-                ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}
                 ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest"
-              else
-                TAGS="$TAGS
-                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}
-                ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}"
               fi
             fi
             
           else # client变体
             # 主仓库标签（shadowsocks-rust）- client和local标签共存
-            if [ "$VERSION_SOURCE" != "manual" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:client-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:local-${BASE}"
-            else
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local-${BASE}"
-            fi
+            # 所有构建都必须有带版本号的标签
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client-${BASE}
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local-${BASE}"
             
             # 客户端专用仓库（sslocal-rust）- 去掉local和client后缀
-            if [ "$VERSION_SOURCE" != "manual" ]; then
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}-${BASE}"
+            
+            # 自动构建时添加latest标签（非手动或非强制构建）
+            if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
               TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}-${BASE}
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client-${BASE}
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:client-${BASE}
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local-${BASE}
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:local-${BASE}
               ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest-${BASE}
               ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${BASE}"
-            else
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}-${BASE}"
             fi
             
             # Debian基础镜像的特殊标签
             if [ "$BASE" = "debian" ]; then
-              if [ "$VERSION_SOURCE" != "manual" ]; then
+              # 自动构建时添加latest标签（非手动或非强制构建）
+              if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
                 TAGS="$TAGS
                 ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client
                 ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local
-                ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}
                 ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest"
-              else
-                TAGS="$TAGS
-                ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}"
               fi
             fi
           fi
@@ -385,80 +408,66 @@ jobs:
           # Docker Hub标签（如果启用）
           if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
             if [ "$VARIANT" = "server" ]; then
-              # Docker Hub主仓库
-              if [ "$VERSION_SOURCE" != "manual" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:server-${BASE}"
-              else
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server-${BASE}"
-              fi
+              # Docker Hub主仓库 - 所有构建都必须有带版本号的标签
+              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server-${BASE}"
               
               # Docker Hub服务端专用仓库
-              if [ "$VERSION_SOURCE" != "manual" ]; then
+              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}-${BASE}"
+              
+              # 自动构建时添加latest标签（非手动或非强制构建）
+              if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
                 TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}-${BASE}
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server-${BASE}
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:server-${BASE}
                 ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest-${BASE}
                 ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${BASE}"
-              else
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}-${BASE}"
               fi
               
               if [ "$BASE" = "debian" ]; then
-                if [ "$VERSION_SOURCE" != "manual" ]; then
+                # 所有构建都必须有带版本号的标签
+                TAGS="$TAGS
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}
+                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}"
+                
+                # 自动构建时添加latest标签（非手动或非强制构建）
+                if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
                   TAGS="$TAGS
-                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}
                   ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest
                   ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:server
-                  ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}
                   ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest"
-                else
-                  TAGS="$TAGS
-                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}
-                  ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}"
                 fi
               fi
               
             else # client变体
-              # Docker Hub主仓库
-              if [ "$VERSION_SOURCE" != "manual" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-client-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:client-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:local-${BASE}"
-              else
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-client-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local-${BASE}"
-              fi
+              # Docker Hub主仓库 - 所有构建都必须有带版本号的标签
+              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-client-${BASE}
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local-${BASE}"
               
               # Docker Hub客户端专用仓库
-              if [ "$VERSION_SOURCE" != "manual" ]; then
+              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}-${BASE}"
+              
+              # 自动构建时添加latest标签（非手动或非强制构建）
+              if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
                 TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}-${BASE}
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client-${BASE}
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:client-${BASE}
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local-${BASE}
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:local-${BASE}
                 ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest-${BASE}
                 ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${BASE}"
-              else
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}-${BASE}"
               fi
               
               if [ "$BASE" = "debian" ]; then
-                if [ "$VERSION_SOURCE" != "manual" ]; then
+                # 自动构建时添加latest标签（非手动或非强制构建）
+                if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
                   TAGS="$TAGS
                   ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client
                   ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local
-                  ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}
                   ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest"
-                else
-                  TAGS="$TAGS
-                  ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}"
                 fi
               fi
             fi
