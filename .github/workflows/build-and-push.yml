@@ -337,8 +337,7 @@ jobs:
           
           # 根据变体生成不同的标签
           if [ "$VARIANT" = "server" ]; then
-            # 主仓库标签（shadowsocks-rust）
-            # 所有构建都必须有带版本号的标签
+            # 主仓库标签（shadowsocks-rust）- 所有构建都必须有带版本号的标签
             TAGS="$TAGS
             ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server-${BASE}"
             
@@ -346,27 +345,25 @@ jobs:
             TAGS="$TAGS
             ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}-${BASE}"
             
+            # Debian基础镜像的特殊标签（默认指向debian的简写标签）
+            if [ "$BASE" = "debian" ]; then
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server
+              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}"
+            fi
+            
             # 自动构建时添加latest标签（非手动或非强制构建）
             if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
               TAGS="$TAGS
               ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:server-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${BASE}"
-            fi
-            
-            # Debian基础镜像的特殊标签
-            if [ "$BASE" = "debian" ]; then
-              # 所有构建都必须有带版本号的标签
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}
-              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}"
+              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest-${BASE}"
               
-              # 自动构建时添加latest标签（非手动或非强制构建）
-              if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
+              # Debian基础镜像的特殊latest标签
+              if [ "$BASE" = "debian" ]; then
                 TAGS="$TAGS
                 ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest
-                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:server
+                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server
                 ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest"
               fi
             fi
@@ -382,21 +379,23 @@ jobs:
             TAGS="$TAGS
             ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}-${BASE}"
             
+            # Debian基础镜像的特殊标签（默认指向debian的简写标签）
+            if [ "$BASE" = "debian" ]; then
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local
+              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}"
+            fi
+            
             # 自动构建时添加latest标签（非手动或非强制构建）
             if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
               TAGS="$TAGS
               ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:client-${BASE}
               ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:local-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${BASE}"
-            fi
-            
-            # Debian基础镜像的特殊标签
-            if [ "$BASE" = "debian" ]; then
-              # 自动构建时添加latest标签（非手动或非强制构建）
-              if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
+              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest-${BASE}"
+              
+              # Debian基础镜像的特殊latest标签
+              if [ "$BASE" = "debian" ]; then
                 TAGS="$TAGS
                 ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client
                 ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local
@@ -416,26 +415,25 @@ jobs:
               TAGS="$TAGS
               ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}-${BASE}"
               
+              # Debian基础镜像的特殊标签
+              if [ "$BASE" = "debian" ]; then
+                TAGS="$TAGS
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server
+                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}"
+              fi
+              
               # 自动构建时添加latest标签（非手动或非强制构建）
               if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
                 TAGS="$TAGS
                 ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:server-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${BASE}"
-              fi
-              
-              if [ "$BASE" = "debian" ]; then
-                # 所有构建都必须有带版本号的标签
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}
-                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}"
+                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest-${BASE}"
                 
-                # 自动构建时添加latest标签（非手动或非强制构建）
-                if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
+                # Debian基础镜像的特殊latest标签
+                if [ "$BASE" = "debian" ]; then
                   TAGS="$TAGS
                   ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest
-                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:server
+                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server
                   ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest"
                 fi
               fi
@@ -450,20 +448,23 @@ jobs:
               TAGS="$TAGS
               ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}-${BASE}"
               
+              # Debian基础镜像的特殊标签
+              if [ "$BASE" = "debian" ]; then
+                TAGS="$TAGS
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-client
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local
+                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}"
+              fi
+              
               # 自动构建时添加latest标签（非手动或非强制构建）
               if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
                 TAGS="$TAGS
                 ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:client-${BASE}
                 ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:local-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${BASE}"
-              fi
-              
-              if [ "$BASE" = "debian" ]; then
-                # 自动构建时添加latest标签（非手动或非强制构建）
-                if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
+                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest-${BASE}"
+                
+                # Debian基础镜像的特殊latest标签
+                if [ "$BASE" = "debian" ]; then
                   TAGS="$TAGS
                   ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client
                   ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local
