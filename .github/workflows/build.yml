@@ -72,17 +72,42 @@ jobs:
                 TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/$REPO:pull" | jq -r '.token // empty')
                 
                 if [ -n "$TOKEN" ]; then
-                  # 获取完整的标签列表
-                  ALL_TAGS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
-                    "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list" | \
-                    jq -r '.tags[]?')
+                  # 获取完整的标签列表（处理分页）
+                  ALL_TAGS=""
+                  PAGE=1
+                  while true; do
+                    TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+                      "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000&last=$(echo "$ALL_TAGS" | tail -1)" | \
+                      jq -r '.tags[]?' 2>/dev/null)
+                    
+                    if [ -z "$TAGS_PAGE" ]; then
+                      break
+                    fi
+                    
+                    if [ -z "$ALL_TAGS" ]; then
+                      ALL_TAGS="$TAGS_PAGE"
+                    else
+                      ALL_TAGS="$ALL_TAGS
+$TAGS_PAGE"
+                    fi
+                    
+                    # 如果返回的标签少于1000，说明已经是最后一页
+                    TAG_COUNT=$(echo "$TAGS_PAGE" | wc -l)
+                    if [ "$TAG_COUNT" -lt 1000 ]; then
+                      break
+                    fi
+                    
+                    PAGE=$((PAGE + 1))
+                    if [ $PAGE -gt 10 ]; then
+                      echo "Warning: Fetched 10 pages, stopping to avoid infinite loop"
+                      break
+                    fi
+                  done
                   
                   if [ -n "$ALL_TAGS" ]; then
-                    # 精确匹配标签格式
-                    # shadowsocks-rust: v1.24.0, v1.24.0-server, v1.24.0-server-debian, v1.24.0-client-debian
-                    # ssserver-rust: v1.24.0, v1.24.0-debian
-                    # sslocal-rust: v1.24.0, v1.24.0-debian
+                    echo "Total tags fetched from $REPO: $(echo "$ALL_TAGS" | wc -l)"
                     
+                    # 精确匹配标签格式
                     if [ "$REPO" = "shadowsocks-rust" ]; then
                       # 主仓库匹配模式 - 匹配任意以版本号开头的标签
                       if echo "$ALL_TAGS" | grep -q "^${MANUAL_VERSION}"; then
@@ -106,8 +131,8 @@ jobs:
                     fi
                     
                     echo "Version $MANUAL_VERSION not found in $REPO"
-                    # 显示前5个标签用于调试
-                    echo "Available tags in $REPO: $(echo "$ALL_TAGS" | head -5 | tr '\n' ' ')..."
+                    # 显示最新的10个标签用于调试
+                    echo "Latest tags in $REPO: $(echo "$ALL_TAGS" | sort -V -r | head -10 | tr '\n' ' ')..."
                   else
                     echo "No tags found in $REPO"
                   fi
@@ -220,28 +245,56 @@ jobs:
               TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/$REPO:pull" | jq -r '.token // empty')
               
               if [ -n "$TOKEN" ]; then
-                # 获取完整的标签列表
-                ALL_TAGS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
-                  "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list" | \
-                  jq -r '.tags[]?')
+                # 获取完整的标签列表（处理分页）
+                ALL_TAGS=""
+                PAGE=1
+                while true; do
+                  TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+                    "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000&last=$(echo "$ALL_TAGS" | tail -1)" | \
+                    jq -r '.tags[]?' 2>/dev/null)
+                  
+                  if [ -z "$TAGS_PAGE" ]; then
+                    break
+                  fi
+                  
+                  if [ -z "$ALL_TAGS" ]; then
+                    ALL_TAGS="$TAGS_PAGE"
+                  else
+                    ALL_TAGS="$ALL_TAGS
+$TAGS_PAGE"
+                  fi
+                  
+                  # 如果返回的标签少于1000，说明已经是最后一页
+                  TAG_COUNT=$(echo "$TAGS_PAGE" | wc -l)
+                  if [ "$TAG_COUNT" -lt 1000 ]; then
+                    break
+                  fi
+                  
+                  PAGE=$((PAGE + 1))
+                  if [ $PAGE -gt 10 ]; then
+                    echo "Warning: Fetched 10 pages, stopping to avoid infinite loop"
+                    break
+                  fi
+                done
                 
                 if [ -n "$ALL_TAGS" ]; then
+                  echo "Total tags fetched from $REPO: $(echo "$ALL_TAGS" | wc -l)"
+                  
                   # 根据仓库类型使用不同的匹配模式
                   if [ "$REPO" = "shadowsocks-rust" ]; then
                     # 主仓库匹配模式：只要有任意以版本号开头的标签就算存在
-                    # 例如 v1.24.0, v1.24.0-server, v1.24.0-server-debian 等都算
                     if echo "$ALL_TAGS" | grep -q "^${LATEST_VERSION}"; then
                       echo "$REPO already has version $LATEST_VERSION"
                       HAS_VERSION=true
                       
-                      # 显示匹配的标签（显示更多以便调试）
+                      # 显示匹配的标签
                       MATCHING_TAGS=$(echo "$ALL_TAGS" | grep "^${LATEST_VERSION}" | head -5)
                       echo "Matching tags: $MATCHING_TAGS"
                       break
                     else
                       echo "$REPO does not have version $LATEST_VERSION"
-                      # 显示仓库中的标签（前10个以便更好地调试）
-                      echo "Available tags in $REPO: $(echo "$ALL_TAGS" | head -10 | tr '\n' ' ')..."
+                      # 显示最新的10个标签用于调试
+                      echo "Latest tags in $REPO: $(echo "$ALL_TAGS" | sort -V -r | head -10 | tr '\n' ' ')..."
                       break
                     fi
                   else
@@ -256,8 +309,8 @@ jobs:
                       break
                     else
                       echo "$REPO does not have version $LATEST_VERSION"
-                      # 显示仓库中的标签（前5个）
-                      echo "Available tags in $REPO: $(echo "$ALL_TAGS" | head -5 | tr '\n' ' ')..."
+                      # 显示最新的5个标签
+                      echo "Latest tags in $REPO: $(echo "$ALL_TAGS" | sort -V -r | head -5 | tr '\n' ' ')..."
                       break
                     fi
                   fi
