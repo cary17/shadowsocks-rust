@@ -75,7 +75,7 @@ docker run -d \
   ghcr.io/cary17/shadowsocks-rust:latest
 ```
 
-### 使用配置文件
+### 使用配置文件(服务端/客户端)
 
 ```bash
 docker run -d \
