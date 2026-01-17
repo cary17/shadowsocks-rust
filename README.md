@@ -226,6 +226,6 @@ services:
 - 资源受限的环境
 - 支持更多架构（包括 386）
 
-### Server vs Client
+### Server vs Client/local
 - **Server**: 用于搭建 Shadowsocks 服务端
 - **Client/local**: 用于客户端代理，提供 SOCKS5 代理服务
