@@ -147,7 +147,7 @@ jobs:
             done
           fi
           
-          # 正常流程：获取最新版本并与GHCR比较
+          # 正常流程：获取最新版本
           for i in $(seq 1 $MAX_RETRIES); do
             echo "Attempt $i of $MAX_RETRIES: Fetching shadowsocks-rust latest version..."
             
@@ -191,18 +191,31 @@ jobs:
               TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/$REPO:pull" | jq -r '.token // empty')
               
               if [ -n "$TOKEN" ]; then
-                REPO_LATEST=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+                # 获取所有标签并提取版本号
+                ALL_TAGS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
                   "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list" | \
-                  jq -r '.tags[]? | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-z]+)?$"))' | \
-                  sed 's/-server//g; s/-client//g; s/-local//g; s/-debian//g; s/-alpine//g' | \
-                  sort -u -V | tail -n1)
+                  jq -r '.tags[]?')
                 
-                if [ -n "$REPO_LATEST" ]; then
-                  echo "$REPO latest version: $REPO_LATEST"
-                  LATEST_VERSIONS+=("$REPO_LATEST")
-                  break
+                if [ -n "$ALL_TAGS" ]; then
+                  # 提取纯版本号（去掉后缀）
+                  PURE_VERSIONS=$(echo "$ALL_TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' | \
+                    sed 's/-server//g; s/-client//g; s/-local//g; s/-debian//g; s/-alpine//g' | \
+                    sort -u)
+                  
+                  REPO_LATEST=$(echo "$PURE_VERSIONS" | sort -V | tail -n1)
+                  
+                  if [ -n "$REPO_LATEST" ]; then
+                    echo "$REPO has versions: $(echo "$PURE_VERSIONS" | tr '\n' ' ')"
+                    echo "$REPO latest version: $REPO_LATEST"
+                    LATEST_VERSIONS+=("$REPO_LATEST")
+                    break
+                  else
+                    echo "No valid versions found in $REPO"
+                    LATEST_VERSIONS+=("")
+                    break
+                  fi
                 else
-                  echo "No valid versions found in $REPO"
+                  echo "No tags found in $REPO"
                   LATEST_VERSIONS+=("")
                   break
                 fi
