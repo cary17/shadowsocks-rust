@@ -72,11 +72,12 @@ jobs:
                 TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/$REPO:pull" | jq -r '.token // empty')
                 
                 if [ -n "$TOKEN" ]; then
-                  # 获取完整的标签列表（处理分页）
-                  ALL_TAGS=""
+                  # 分页获取标签并检查（不拼接，直接在每页中查找）
+                  FOUND=false
                   PAGE=1
                   LAST_TAG=""
-                  while true; do
+                  
+                  while [ $PAGE -le 10 ]; do
                     if [ -z "$LAST_TAG" ]; then
                       TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
                         "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000" | \
@@ -91,60 +92,39 @@ jobs:
                       break
                     fi
                     
-                    if [ -z "$ALL_TAGS" ]; then
-                      ALL_TAGS="$TAGS_PAGE"
+                    # 在当前页中查找匹配的标签
+                    if [ "$REPO" = "shadowsocks-rust" ]; then
+                      if echo "$TAGS_PAGE" | grep -q "^${MANUAL_VERSION}"; then
+                        echo "Version $MANUAL_VERSION found in $REPO (page $PAGE)"
+                        FOUND=true
+                        MATCHING_TAGS=$(echo "$TAGS_PAGE" | grep "^${MANUAL_VERSION}" | head -5)
+                        echo "Matching tags: $MATCHING_TAGS"
+                        break
+                      fi
                     else
-                      ALL_TAGS="${ALL_TAGS}
-${TAGS_PAGE}"
+                      if echo "$TAGS_PAGE" | grep -q -E "^${MANUAL_VERSION}(-debian|-alpine)?$"; then
+                        echo "Version $MANUAL_VERSION found in $REPO (page $PAGE)"
+                        FOUND=true
+                        MATCHING_TAGS=$(echo "$TAGS_PAGE" | grep -E "^${MANUAL_VERSION}(-debian|-alpine)?$" | head -3)
+                        echo "Matching tags: $MATCHING_TAGS"
+                        break
+                      fi
                     fi
                     
-                    # 如果返回的标签少于1000，说明已经是最后一页
                     TAG_COUNT=$(echo "$TAGS_PAGE" | wc -l)
                     if [ "$TAG_COUNT" -lt 1000 ]; then
                       break
                     fi
                     
-                    # 更新最后一个标签用于下次请求
                     LAST_TAG=$(echo "$TAGS_PAGE" | tail -1)
-                    
                     PAGE=$((PAGE + 1))
-                    if [ $PAGE -gt 10 ]; then
-                      echo "Warning: Fetched 10 pages, stopping to avoid infinite loop"
-                      break
-                    fi
                   done
                   
-                  if [ -n "$ALL_TAGS" ]; then
-                    echo "Total tags fetched from $REPO: $(echo "$ALL_TAGS" | wc -l)"
-                    
-                    # 精确匹配标签格式
-                    if [ "$REPO" = "shadowsocks-rust" ]; then
-                      # 主仓库匹配模式 - 匹配任意以版本号开头的标签
-                      if echo "$ALL_TAGS" | grep -q "^${MANUAL_VERSION}"; then
-                        echo "Version $MANUAL_VERSION already exists in $REPO"
-                        VERSION_EXISTS=true
-                        # 显示匹配的标签用于调试
-                        MATCHING_TAGS=$(echo "$ALL_TAGS" | grep "^${MANUAL_VERSION}" | head -5)
-                        echo "Matching tags: $MATCHING_TAGS"
-                        break
-                      fi
-                    else
-                      # 专用仓库匹配模式
-                      if echo "$ALL_TAGS" | grep -q -E "^${MANUAL_VERSION}(-debian|-alpine)?$"; then
-                        echo "Version $MANUAL_VERSION already exists in $REPO"
-                        VERSION_EXISTS=true
-                        # 显示匹配的标签用于调试
-                        MATCHING_TAGS=$(echo "$ALL_TAGS" | grep -E "^${MANUAL_VERSION}(-debian|-alpine)?$" | head -3)
-                        echo "Matching tags: $MATCHING_TAGS"
-                        break
-                      fi
-                    fi
-                    
-                    echo "Version $MANUAL_VERSION not found in $REPO"
-                    # 显示最新的10个标签用于调试
-                    echo "Latest tags in $REPO: $(echo "$ALL_TAGS" | sort -V -r | head -10 | tr '\n' ' ')..."
+                  if [ "$FOUND" = true ]; then
+                    VERSION_EXISTS=true
+                    break
                   else
-                    echo "No tags found in $REPO"
+                    echo "Version $MANUAL_VERSION not found in $REPO after checking $PAGE pages"
                   fi
                 else
                   echo "Failed to get GHCR token for $REPO"
@@ -255,11 +235,11 @@ ${TAGS_PAGE}"
               TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/$REPO:pull" | jq -r '.token // empty')
               
               if [ -n "$TOKEN" ]; then
-                # 获取完整的标签列表（处理分页）
-                ALL_TAGS=""
+                # 分页获取标签并检查（不拼接，直接在每页中查找）
                 PAGE=1
                 LAST_TAG=""
-                while true; do
+                
+                while [ $PAGE -le 10 ]; do
                   if [ -z "$LAST_TAG" ]; then
                     TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
                       "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000" | \
@@ -274,417 +254,38 @@ ${TAGS_PAGE}"
                     break
                   fi
                   
-                  if [ -z "$ALL_TAGS" ]; then
-                    ALL_TAGS="$TAGS_PAGE"
+                  # 在当前页中查找匹配的标签
+                  if [ "$REPO" = "shadowsocks-rust" ]; then
+                    if echo "$TAGS_PAGE" | grep -q "^${LATEST_VERSION}"; then
+                      echo "$REPO already has version $LATEST_VERSION (found on page $PAGE)"
+                      HAS_VERSION=true
+                      MATCHING_TAGS=$(echo "$TAGS_PAGE" | grep "^${LATEST_VERSION}" | head -5)
+                      echo "Matching tags: $MATCHING_TAGS"
+                      break
+                    fi
                   else
-                    ALL_TAGS="$ALL_TAGS"
+                    if echo "$TAGS_PAGE" | grep -q -E "^${LATEST_VERSION}(-debian|-alpine)?$"; then
+                      echo "$REPO already has version $LATEST_VERSION (found on page $PAGE)"
+                      HAS_VERSION=true
+                      MATCHING_TAGS=$(echo "$TAGS_PAGE" | grep -E "^${LATEST_VERSION}(-debian|-alpine)?$" | head -3)
+                      echo "Matching tags: $MATCHING_TAGS"
+                      break
+                    fi
+                  fi
                   
-                  # 如果返回的标签少于1000，说明已经是最后一页
                   TAG_COUNT=$(echo "$TAGS_PAGE" | wc -l)
                   if [ "$TAG_COUNT" -lt 1000 ]; then
                     break
                   fi
                   
-                  # 更新最后一个标签用于下次请求
                   LAST_TAG=$(echo "$TAGS_PAGE" | tail -1)
-                  
                   PAGE=$((PAGE + 1))
-                  if [ $PAGE -gt 10 ]; then
-                    echo "Warning: Fetched 10 pages, stopping to avoid infinite loop"
-                    break
-                  fi
                 done
                 
-                if [ -n "$ALL_TAGS" ]; then
-                  echo "Total tags fetched from $REPO: $(echo "$ALL_TAGS" | wc -l)"
-                  
-                  # 根据仓库类型使用不同的匹配模式
-                  if [ "$REPO" = "shadowsocks-rust" ]; then
-                    # 主仓库匹配模式：只要有任意以版本号开头的标签就算存在
-                    if echo "$ALL_TAGS" | grep -q "^${LATEST_VERSION}"; then
-                      echo "$REPO already has version $LATEST_VERSION"
-                      HAS_VERSION=true
-                      
-                      # 显示匹配的标签
-                      MATCHING_TAGS=$(echo "$ALL_TAGS" | grep "^${LATEST_VERSION}" | head -5)
-                      echo "Matching tags: $MATCHING_TAGS"
-                      break
-                    else
-                      echo "$REPO does not have version $LATEST_VERSION"
-                      # 显示最新的10个标签用于调试
-                      echo "Latest tags in $REPO: $(echo "$ALL_TAGS" | sort -V -r | head -10 | tr '\n' ' ')..."
-                      break
-                    fi
-                  else
-                    # 专用仓库匹配模式：v1.24.0, v1.24.0-debian, v1.24.0-alpine
-                    if echo "$ALL_TAGS" | grep -q -E "^${LATEST_VERSION}(-debian|-alpine)?$"; then
-                      echo "$REPO already has version $LATEST_VERSION"
-                      HAS_VERSION=true
-                      
-                      # 显示匹配的标签
-                      MATCHING_TAGS=$(echo "$ALL_TAGS" | grep -E "^${LATEST_VERSION}(-debian|-alpine)?$" | head -3)
-                      echo "Matching tags: $MATCHING_TAGS"
-                      break
-                    else
-                      echo "$REPO does not have version $LATEST_VERSION"
-                      # 显示最新的5个标签
-                      echo "Latest tags in $REPO: $(echo "$ALL_TAGS" | sort -V -r | head -5 | tr '\n' ' ')..."
-                      break
-                    fi
-                  fi
-                else
-                  echo "No tags found in $REPO"
-                  break
+                if [ "$HAS_VERSION" != true ]; then
+                  echo "$REPO does not have version $LATEST_VERSION (checked $PAGE pages)"
                 fi
-              else
-                echo "Failed to get GHCR token for $REPO"
-                if [ $i -eq $MAX_RETRIES ]; then
-                  echo "Assuming $REPO doesn't have version $LATEST_VERSION"
-                else
-                  sleep $RETRY_DELAY
-                fi
-              fi
-            done
-            
-            if [ "$HAS_VERSION" != true ]; then
-              echo "$REPO is missing version $LATEST_VERSION, will build"
-              NEED_BUILD=true
-            fi
-          done
-          
-          if [ "$NEED_BUILD" = true ]; then
-            echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-            echo "should_build=true" >> $GITHUB_OUTPUT
-          else
-            echo "All repositories have version $LATEST_VERSION, skipping build"
-            echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-            echo "should_build=false" >> $GITHUB_OUTPUT
-          fi
-
-  build-images:
-    needs: check-version
-    if: needs.check-version.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      matrix:
-        base: [debian, alpine]
-        variant: [server, client]
-      fail-fast: false  # 允许一个失败时其他继续
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.GHCR_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check Docker Hub credentials
-        id: dockerhub
-        run: |
-          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
-            echo "enabled=true" >> $GITHUB_OUTPUT
-          else
-            echo "enabled=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Log in to Docker Hub
-        if: steps.dockerhub.outputs.enabled == 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Prepare tags and platforms
-        id: prepare
-        run: |
-          REPO_NAME="${{ github.event.repository.name }}"
-          VERSION="${{ needs.check-version.outputs.new_version }}"
-          VERSION_SOURCE="${{ needs.check-version.outputs.version_source }}"
-          BASE="${{ matrix.base }}"
-          VARIANT="${{ matrix.variant }}"
-          FORCE_BUILD="${{ github.event.inputs.force_build }}"
-          
-          echo "Building version: $VERSION (source: $VERSION_SOURCE, force: $FORCE_BUILD)"
-          
-          # 验证版本号格式
-          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Invalid version format: $VERSION"
-            exit 1
-          fi
-          
-          # 设置平台
-          if [ "$BASE" = "alpine" ]; then
-            PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/386"
-          else
-            PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7"
-          fi
-          echo "platforms=$PLATFORMS" >> $GITHUB_OUTPUT
-          
-          # 生成标签列表
-          TAGS=""
-          
-          # 根据变体生成不同的标签
-          if [ "$VARIANT" = "server" ]; then
-            # 主仓库标签（shadowsocks-rust）- 所有构建都必须有带版本号的标签
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server-${BASE}"
-            
-            # 服务端专用仓库（ssserver-rust）- 去掉server后缀
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}-${BASE}"
-            
-            # Debian基础镜像的特殊标签（默认指向debian的简写标签）
-            if [ "$BASE" = "debian" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server
-              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}"
-            fi
-            
-            # 自动构建时添加latest标签（非手动或非强制构建）
-            if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest-${BASE}"
-              
-              # Debian基础镜像的特殊latest标签
-              if [ "$BASE" = "debian" ]; then
-                TAGS="$TAGS
-                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest
-                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server
-                ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest"
-              fi
-            fi
-            
-          else # client变体
-            # 主仓库标签（shadowsocks-rust）- client和local标签共存
-            # 所有构建都必须有带版本号的标签
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client-${BASE}
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local-${BASE}"
-            
-            # 客户端专用仓库（sslocal-rust）- 去掉local和client后缀
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}-${BASE}"
-            
-            # Debian基础镜像的特殊标签（默认指向debian的简写标签）
-            if [ "$BASE" = "debian" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local
-              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}"
-            fi
-            
-            # 自动构建时添加latest标签（非手动或非强制构建）
-            if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest-${BASE}"
-              
-              # Debian基础镜像的特殊latest标签
-              if [ "$BASE" = "debian" ]; then
-                TAGS="$TAGS
-                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client
-                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local
-                ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest"
-              fi
-            fi
-          fi
-          
-          # Docker Hub标签（如果启用）
-          if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
-            if [ "$VARIANT" = "server" ]; then
-              # Docker Hub主仓库 - 所有构建都必须有带版本号的标签
-              TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server-${BASE}"
-              
-              # Docker Hub服务端专用仓库
-              TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}-${BASE}"
-              
-              # Debian基础镜像的特殊标签
-              if [ "$BASE" = "debian" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server
-                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}"
-              fi
-              
-              # 自动构建时添加latest标签（非手动或非强制构建）
-              if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest-${BASE}"
-                
-                # Debian基础镜像的特殊latest标签
-                if [ "$BASE" = "debian" ]; then
-                  TAGS="$TAGS
-                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest
-                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server
-                  ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest"
-                fi
-              fi
-              
-            else # client变体
-              # Docker Hub主仓库 - 所有构建都必须有带版本号的标签
-              TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-client-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local-${BASE}"
-              
-              # Docker Hub客户端专用仓库
-              TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}-${BASE}"
-              
-              # Debian基础镜像的特殊标签
-              if [ "$BASE" = "debian" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-client
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local
-                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}"
-              fi
-              
-              # 自动构建时添加latest标签（非手动或非强制构建）
-              if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest-${BASE}"
-                
-                # Debian基础镜像的特殊latest标签
-                if [ "$BASE" = "debian" ]; then
-                  TAGS="$TAGS
-                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client
-                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local
-                  ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest"
-                fi
-              fi
-            fi
-          fi
-          
-          # 清理标签列表（去除空行和重复）
-          TAGS=$(echo "$TAGS" | sed '/^$/d' | sort -u)
-          
-          echo "Generated tags:"
-          echo "$TAGS"
-          
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAGS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.${{ matrix.base }}
-          platforms: ${{ steps.prepare.outputs.platforms }}
-          push: true
-          tags: ${{ steps.prepare.outputs.tags }}
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
-          cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
-          target: ${{ matrix.variant }}
-        continue-on-error: true
-        id: build-push
-
-      - name: Build and push to GHCR only (fallback)
-        if: steps.build-push.outcome == 'failure'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.${{ matrix.base }}
-          platforms: ${{ steps.prepare.outputs.platforms }}
-          push: true
-          tags: |
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${{ needs.check-version.outputs.new_version }}-${{ matrix.variant }}-${{ matrix.base }}
-            ${{ env.GHCR_IMAGE_BASE }}/${{ matrix.variant == 'server' && 'ssserver' || 'sslocal' }}-rust:${{ needs.check-version.outputs.new_version }}-${{ matrix.base }}
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
-          cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
-          target: ${{ matrix.variant }}
-
-      - name: Notify about Docker Hub push failure
-        if: steps.build-push.outcome == 'failure'
-        run: |
-          echo "::warning::Failed to push to Docker Hub. Image pushed to GHCR only."
-\n'"$TAGS_PAGE"
-                  fi
-                  
-                  # 如果返回的标签少于1000，说明已经是最后一页
-                  TAG_COUNT=$(echo "$TAGS_PAGE" | wc -l)
-                  if [ "$TAG_COUNT" -lt 1000 ]; then
-                    break
-                  fi
-                  
-                  # 更新最后一个标签用于下次请求
-                  LAST_TAG=$(echo "$TAGS_PAGE" | tail -1)
-                  
-                  PAGE=$((PAGE + 1))
-                  if [ $PAGE -gt 10 ]; then
-                    echo "Warning: Fetched 10 pages, stopping to avoid infinite loop"
-                    break
-                  fi
-                done
-                
-                if [ -n "$ALL_TAGS" ]; then
-                  echo "Total tags fetched from $REPO: $(echo "$ALL_TAGS" | wc -l)"
-                  
-                  # 根据仓库类型使用不同的匹配模式
-                  if [ "$REPO" = "shadowsocks-rust" ]; then
-                    # 主仓库匹配模式：只要有任意以版本号开头的标签就算存在
-                    if echo "$ALL_TAGS" | grep -q "^${LATEST_VERSION}"; then
-                      echo "$REPO already has version $LATEST_VERSION"
-                      HAS_VERSION=true
-                      
-                      # 显示匹配的标签
-                      MATCHING_TAGS=$(echo "$ALL_TAGS" | grep "^${LATEST_VERSION}" | head -5)
-                      echo "Matching tags: $MATCHING_TAGS"
-                      break
-                    else
-                      echo "$REPO does not have version $LATEST_VERSION"
-                      # 显示最新的10个标签用于调试
-                      echo "Latest tags in $REPO: $(echo "$ALL_TAGS" | sort -V -r | head -10 | tr '\n' ' ')..."
-                      break
-                    fi
-                  else
-                    # 专用仓库匹配模式：v1.24.0, v1.24.0-debian, v1.24.0-alpine
-                    if echo "$ALL_TAGS" | grep -q -E "^${LATEST_VERSION}(-debian|-alpine)?$"; then
-                      echo "$REPO already has version $LATEST_VERSION"
-                      HAS_VERSION=true
-                      
-                      # 显示匹配的标签
-                      MATCHING_TAGS=$(echo "$ALL_TAGS" | grep -E "^${LATEST_VERSION}(-debian|-alpine)?$" | head -3)
-                      echo "Matching tags: $MATCHING_TAGS"
-                      break
-                    else
-                      echo "$REPO does not have version $LATEST_VERSION"
-                      # 显示最新的5个标签
-                      echo "Latest tags in $REPO: $(echo "$ALL_TAGS" | sort -V -r | head -5 | tr '\n' ' ')..."
-                      break
-                    fi
-                  fi
-                else
-                  echo "No tags found in $REPO"
-                  break
-                fi
+                break
               else
                 echo "Failed to get GHCR token for $REPO"
                 if [ $i -eq $MAX_RETRIES ]; then
