@@ -72,17 +72,43 @@ jobs:
                 TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/$REPO:pull" | jq -r '.token // empty')
                 
                 if [ -n "$TOKEN" ]; then
-                  GHCR_VERSIONS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+                  ALL_TAGS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
                     "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list" | \
                     jq -r '.tags[]?')
                   
-                  # 检查是否已存在该版本（任何变体）
-                  if echo "$GHCR_VERSIONS" | grep -q "${MANUAL_VERSION}"; then
-                    echo "Version $MANUAL_VERSION already exists in $REPO"
-                    VERSION_EXISTS=true
-                    break
-                  else
+                  if [ -n "$ALL_TAGS" ]; then
+                    # 精确匹配标签格式
+                    # shadowsocks-rust: v1.24.0, v1.24.0-server, v1.24.0-server-debian, v1.24.0-client-debian
+                    # ssserver-rust: v1.24.0, v1.24.0-debian
+                    # sslocal-rust: v1.24.0, v1.24.0-debian
+                    
+                    if [ "$REPO" = "shadowsocks-rust" ]; then
+                      # 主仓库匹配模式
+                      if echo "$ALL_TAGS" | grep -q -E "^${MANUAL_VERSION}(-server|-client|-local)?(-debian|-alpine)?$"; then
+                        echo "Version $MANUAL_VERSION already exists in $REPO"
+                        VERSION_EXISTS=true
+                        # 显示匹配的标签用于调试
+                        MATCHING_TAGS=$(echo "$ALL_TAGS" | grep -E "^${MANUAL_VERSION}(-server|-client|-local)?(-debian|-alpine)?$" | head -3)
+                        echo "Matching tags: $MATCHING_TAGS"
+                        break
+                      fi
+                    else
+                      # 专用仓库匹配模式
+                      if echo "$ALL_TAGS" | grep -q -E "^${MANUAL_VERSION}(-debian|-alpine)?$"; then
+                        echo "Version $MANUAL_VERSION already exists in $REPO"
+                        VERSION_EXISTS=true
+                        # 显示匹配的标签用于调试
+                        MATCHING_TAGS=$(echo "$ALL_TAGS" | grep -E "^${MANUAL_VERSION}(-debian|-alpine)?$" | head -3)
+                        echo "Matching tags: $MATCHING_TAGS"
+                        break
+                      fi
+                    fi
+                    
                     echo "Version $MANUAL_VERSION not found in $REPO"
+                    # 显示前5个标签用于调试
+                    echo "Available tags in $REPO: $(echo "$ALL_TAGS" | head -5 | tr '\n' ' ')..."
+                  else
+                    echo "No tags found in $REPO"
                   fi
                 else
                   echo "Failed to get GHCR token for $REPO"
@@ -198,20 +224,39 @@ jobs:
                   jq -r '.tags[]?')
                 
                 if [ -n "$ALL_TAGS" ]; then
-                  # 直接检查是否包含该版本的任何标签
-                  if echo "$ALL_TAGS" | grep -q "${LATEST_VERSION}"; then
-                    echo "$REPO already has version $LATEST_VERSION"
-                    HAS_VERSION=true
-                    
-                    # 显示匹配的标签
-                    MATCHING_TAGS=$(echo "$ALL_TAGS" | grep "${LATEST_VERSION}" | head -3)
-                    echo "Matching tags: $MATCHING_TAGS"
-                    break
+                  # 根据仓库类型使用不同的匹配模式
+                  if [ "$REPO" = "shadowsocks-rust" ]; then
+                    # 主仓库匹配模式：v1.24.0, v1.24.0-server, v1.24.0-server-debian, v1.24.0-client-debian等
+                    if echo "$ALL_TAGS" | grep -q -E "^${LATEST_VERSION}(-server|-client|-local)?(-debian|-alpine)?$"; then
+                      echo "$REPO already has version $LATEST_VERSION"
+                      HAS_VERSION=true
+                      
+                      # 显示匹配的标签
+                      MATCHING_TAGS=$(echo "$ALL_TAGS" | grep -E "^${LATEST_VERSION}(-server|-client|-local)?(-debian|-alpine)?$" | head -3)
+                      echo "Matching tags: $MATCHING_TAGS"
+                      break
+                    else
+                      echo "$REPO does not have version $LATEST_VERSION"
+                      # 显示仓库中的标签（前5个）
+                      echo "Available tags in $REPO: $(echo "$ALL_TAGS" | head -5 | tr '\n' ' ')..."
+                      break
+                    fi
                   else
-                    echo "$REPO does not have version $LATEST_VERSION"
-                    # 显示仓库中的标签（前5个）
-                    echo "Available tags in $REPO: $(echo "$ALL_TAGS" | head -5 | tr '\n' ' ')..."
-                    break
+                    # 专用仓库匹配模式：v1.24.0, v1.24.0-debian, v1.24.0-alpine
+                    if echo "$ALL_TAGS" | grep -q -E "^${LATEST_VERSION}(-debian|-alpine)?$"; then
+                      echo "$REPO already has version $LATEST_VERSION"
+                      HAS_VERSION=true
+                      
+                      # 显示匹配的标签
+                      MATCHING_TAGS=$(echo "$ALL_TAGS" | grep -E "^${LATEST_VERSION}(-debian|-alpine)?$" | head -3)
+                      echo "Matching tags: $MATCHING_TAGS"
+                      break
+                    else
+                      echo "$REPO does not have version $LATEST_VERSION"
+                      # 显示仓库中的标签（前5个）
+                      echo "Available tags in $REPO: $(echo "$ALL_TAGS" | head -5 | tr '\n' ' ')..."
+                      break
+                    fi
                   fi
                 else
                   echo "No tags found in $REPO"
