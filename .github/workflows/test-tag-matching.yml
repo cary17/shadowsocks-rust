@@ -11,11 +11,6 @@ on:
         description: 'Repository to test'
         required: false
         default: 'shadowsocks-rust'
-        type: choice
-        options:
-          - shadowsocks-rust
-          - ssserver-rust
-          - sslocal-rust
 
 env:
   GHCR_REGISTRY: ghcr.io
