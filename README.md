@@ -66,7 +66,7 @@ ghcr.io/cary17/sslocal-rust:latest     # Debian 客户端简写
 
 ```bash
 docker run -d \
-  --name ss-rust-server \
+  --name ss-rust \
   -p 8388:8388/tcp \
   -p 8388:8388/udp \
   -e SS_SERVER_PORT=8388 \
@@ -79,7 +79,7 @@ docker run -d \
 
 ```bash
 docker run -d \
-  --name ss-rust-server \
+  --name ss-rust \
   -p 8388:8388/tcp \
   -p 8388:8388/udp \
   -v /path/to/config:/etc/ss-rust \
@@ -145,9 +145,9 @@ docker run -d \
 version: '3.8'
 
 services:
-  shadowsocks-server:
+  shadowsocks:
     image: ghcr.io/cary17/shadowsocks-rust:latest
-    container_name: ss-server
+    container_name: ss-rust
     restart: unless-stopped
     ports:
       - "8388:8388/tcp"
