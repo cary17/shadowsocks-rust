@@ -25,20 +25,39 @@
 
 ### 服务端标签示例
 ```
-ghcr.io/cary17/shadowsocks-rust:v1.17.0-server-debian
-ghcr.io/cary17/shadowsocks-rust:v1.17.0-server-alpine
+ghcr.io/cary17/shadowsocks-rust:v1.24.0-server-debian
+ghcr.io/cary17/shadowsocks-rust:v1.24.0-server-alpine
 ghcr.io/cary17/shadowsocks-rust:latest-server-debian
 ghcr.io/cary17/shadowsocks-rust:latest-server-alpine
-ghcr.io/cary17/shadowsocks-rust:v1.17.0  # Debian server 简写
-ghcr.io/cary17/shadowsocks-rust:latest   # Debian server 简写
+ghcr.io/cary17/shadowsocks-rust:v1.24.0  # Debian 服务端简写
+ghcr.io/cary17/shadowsocks-rust:latest   # Debian 服务端简写
+
+ghcr.io/cary17/ssserver-rust:v1.24.0-debian
+ghcr.io/cary17/ssserver-rust:v1.24.0-alpine
+ghcr.io/cary17/ssserver-rust:latest-debian
+ghcr.io/cary17/ssserver-rust:latest-alpine
+ghcr.io/cary17/ssserver-rust:v1.24.0    # Debian 服务端简写
+ghcr.io/cary17/ssserver-rust:latest     # Debian 服务端简写
 ```
 
 ### 客户端标签示例
 ```
-ghcr.io/cary17/shadowsocks-rust:v1.17.0-client-debian
-ghcr.io/cary17/shadowsocks-rust:v1.17.0-client-alpine
+ghcr.io/cary17/shadowsocks-rust:v1.24.0-client-debian
+ghcr.io/cary17/shadowsocks-rust:v1.24.0-client-alpine
 ghcr.io/cary17/shadowsocks-rust:latest-client-debian
 ghcr.io/cary17/shadowsocks-rust:latest-client-alpine
+
+ghcr.io/cary17/shadowsocks-rust:v1.24.0-local-debian
+ghcr.io/cary17/shadowsocks-rust:v1.24.0-local-alpine
+ghcr.io/cary17/shadowsocks-rust:latest-local-debian
+ghcr.io/cary17/shadowsocks-rust:latest-local-alpine
+
+ghcr.io/cary17/sslocal-rust:v1.24.0-debian
+ghcr.io/cary17/sslocal-rust:v1.24.0-alpine
+ghcr.io/cary17/sslocal-rust:latest-debian
+ghcr.io/cary17/sslocal-rust:latest-alpine
+ghcr.io/cary17/sslocal-rust:v1.24.0    # Debian 客户端简写
+ghcr.io/cary17/sslocal-rust:latest     # Debian 客户端简写
 ```
 
 ## 快速开始
@@ -181,14 +200,19 @@ services:
 2. 选择 "Build and Push Docker Images" workflow
 3. 点击 "Run workflow"
 4. 可选填：
-   - `version`: 指定版本号（如 `v1.17.0`），留空则使用最新版本
+   - `version`: 指定版本号（如 `v1.24.0`），留空则使用最新版本
    - `debian_version`: Debian 基础镜像版本（默认 `stable`）
    - `force_build`: 强制构建已存在的版本
 
 ## 镜像仓库
 
 - **GitHub Container Registry**: `ghcr.io/cary17/shadowsocks-rust:latest`
-- **Docker Hub**（可选）: `cary17/shadowsocks-rust:latest`
+- **GitHub Container Registry**: `ghcr.io/cary17/ssserver-rust:latest`
+- **GitHub Container Registry**: `ghcr.io/cary17/sslocal-rust:latest`
+
+- **Docker Hub**: `cary17/shadowsocks-rust:latest`
+- **Docker Hub**: `cary17/ssserver-rust:latest`
+- **Docker Hub**: `cary17/sslocal-rust:latest`
 
 ## 选择合适的镜像
 
@@ -204,4 +228,4 @@ services:
 
 ### Server vs Client
 - **Server**: 用于搭建 Shadowsocks 服务端
-- **Client**: 用于客户端代理，提供 SOCKS5 代理服务
+- **Client/local**: 用于客户端代理，提供 SOCKS5 代理服务
