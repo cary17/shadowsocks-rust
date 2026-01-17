@@ -12,7 +12,7 @@
 
 ### 按功能分类
 - **Server**: 仅包含 `ssserver`，用于搭建服务端
-- **Client**: 仅包含 `sslocal`，用于客户端代理
+- **Client/local**: 仅包含 `sslocal`，用于客户端代理
 
 ## 支持的架构
 
