@@ -191,26 +191,32 @@ jobs:
               TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/$REPO:pull" | jq -r '.token // empty')
               
               if [ -n "$TOKEN" ]; then
-                # 获取所有标签并提取版本号
+                # 获取所有标签
                 ALL_TAGS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
                   "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list" | \
                   jq -r '.tags[]?')
                 
                 if [ -n "$ALL_TAGS" ]; then
-                  # 提取纯版本号（去掉后缀）
-                  PURE_VERSIONS=$(echo "$ALL_TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' | \
-                    sed 's/-server//g; s/-client//g; s/-local//g; s/-debian//g; s/-alpine//g' | \
-                    sort -u)
+                  # 笨办法：直接检查是否包含该版本的任何标签
+                  # 首先提取所有标签中的版本号部分
+                  ALL_VERSIONS=""
+                  while IFS= read -r TAG; do
+                    # 提取版本号部分（vX.Y.Z）
+                    if [[ "$TAG" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+) ]]; then
+                      VERSION_PART="${BASH_REMATCH[1]}"
+                      ALL_VERSIONS="${ALL_VERSIONS}${VERSION_PART}\n"
+                    fi
+                  done <<< "$ALL_TAGS"
                   
-                  REPO_LATEST=$(echo "$PURE_VERSIONS" | sort -V | tail -n1)
-                  
-                  if [ -n "$REPO_LATEST" ]; then
-                    echo "$REPO has versions: $(echo "$PURE_VERSIONS" | tr '\n' ' ')"
+                  # 去重并排序，获取最新版本
+                  if [ -n "$ALL_VERSIONS" ]; then
+                    REPO_LATEST=$(echo -e "$ALL_VERSIONS" | sort -u -V | tail -n1)
+                    echo "$REPO has tags: $(echo "$ALL_TAGS" | head -5 | tr '\n' ' ')..."
                     echo "$REPO latest version: $REPO_LATEST"
                     LATEST_VERSIONS+=("$REPO_LATEST")
                     break
                   else
-                    echo "No valid versions found in $REPO"
+                    echo "No version tags found in $REPO"
                     LATEST_VERSIONS+=("")
                     break
                   fi
@@ -253,9 +259,10 @@ jobs:
             else
               REPO_NUM="${REPO_VERSION#v}"
               
-              if [ "$LATEST_NUM" = "$REPO_NUM" ]; then
+              # 直接使用字符串比较，避免复杂处理
+              if [ "$LATEST_VERSION" = "$REPO_VERSION" ]; then
                 echo "$REPO has same version: $REPO_VERSION"
-              elif [ "$(printf "%s\n%s" "$LATEST_NUM" "$REPO_NUM" | sort -V | tail -n1)" = "$LATEST_NUM" ]; then
+              elif [ "$(printf "%s\n%s" "$LATEST_VERSION" "$REPO_VERSION" | sort -V | tail -n1)" = "$LATEST_VERSION" ]; then
                 echo "$REPO has older version ($REPO_VERSION < $LATEST_VERSION), will build"
                 NEED_BUILD=true
                 break
