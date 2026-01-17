@@ -75,10 +75,17 @@ jobs:
                   # 获取完整的标签列表（处理分页）
                   ALL_TAGS=""
                   PAGE=1
+                  LAST_TAG=""
                   while true; do
-                    TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
-                      "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000&last=$(echo "$ALL_TAGS" | tail -1)" | \
-                      jq -r '.tags[]?' 2>/dev/null)
+                    if [ -z "$LAST_TAG" ]; then
+                      TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+                        "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000" | \
+                        jq -r '.tags[]?' 2>/dev/null)
+                    else
+                      TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+                        "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000&last=${LAST_TAG}" | \
+                        jq -r '.tags[]?' 2>/dev/null)
+                    fi
                     
                     if [ -z "$TAGS_PAGE" ]; then
                       break
@@ -87,8 +94,8 @@ jobs:
                     if [ -z "$ALL_TAGS" ]; then
                       ALL_TAGS="$TAGS_PAGE"
                     else
-                      ALL_TAGS="$ALL_TAGS
-$TAGS_PAGE"
+                      ALL_TAGS="${ALL_TAGS}
+${TAGS_PAGE}"
                     fi
                     
                     # 如果返回的标签少于1000，说明已经是最后一页
@@ -96,6 +103,9 @@ $TAGS_PAGE"
                     if [ "$TAG_COUNT" -lt 1000 ]; then
                       break
                     fi
+                    
+                    # 更新最后一个标签用于下次请求
+                    LAST_TAG=$(echo "$TAGS_PAGE" | tail -1)
                     
                     PAGE=$((PAGE + 1))
                     if [ $PAGE -gt 10 ]; then
@@ -248,10 +258,17 @@ $TAGS_PAGE"
                 # 获取完整的标签列表（处理分页）
                 ALL_TAGS=""
                 PAGE=1
+                LAST_TAG=""
                 while true; do
-                  TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
-                    "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000&last=$(echo "$ALL_TAGS" | tail -1)" | \
-                    jq -r '.tags[]?' 2>/dev/null)
+                  if [ -z "$LAST_TAG" ]; then
+                    TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+                      "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000" | \
+                      jq -r '.tags[]?' 2>/dev/null)
+                  else
+                    TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
+                      "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000&last=${LAST_TAG}" | \
+                      jq -r '.tags[]?' 2>/dev/null)
+                  fi
                   
                   if [ -z "$TAGS_PAGE" ]; then
                     break
@@ -260,8 +277,8 @@ $TAGS_PAGE"
                   if [ -z "$ALL_TAGS" ]; then
                     ALL_TAGS="$TAGS_PAGE"
                   else
-                    ALL_TAGS="$ALL_TAGS
-$TAGS_PAGE"
+                    ALL_TAGS="${ALL_TAGS}
+${TAGS_PAGE}"
                   fi
                   
                   # 如果返回的标签少于1000，说明已经是最后一页
@@ -269,6 +286,9 @@ $TAGS_PAGE"
                   if [ "$TAG_COUNT" -lt 1000 ]; then
                     break
                   fi
+                  
+                  # 更新最后一个标签用于下次请求
+                  LAST_TAG=$(echo "$TAGS_PAGE" | tail -1)
                   
                   PAGE=$((PAGE + 1))
                   if [ $PAGE -gt 10 ]; then
