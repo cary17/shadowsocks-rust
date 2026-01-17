@@ -62,7 +62,7 @@ ghcr.io/cary17/sslocal-rust:latest     # Debian 客户端简写
 
 ## 快速开始
 
-### 服务端（使用环境变量）
+### 使用环境变量（仅服务端）
 
 ```bash
 docker run -d \
