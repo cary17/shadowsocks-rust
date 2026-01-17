@@ -77,7 +77,7 @@ jobs:
                     jq -r '.tags[]?')
                   
                   # 检查是否已存在该版本（任何变体）
-                  if echo "$GHCR_VERSIONS" | grep -q "^${MANUAL_VERSION}\(-.*\)\?$"; then
+                  if echo "$GHCR_VERSIONS" | grep -q "${MANUAL_VERSION}"; then
                     echo "Version $MANUAL_VERSION already exists in $REPO"
                     VERSION_EXISTS=true
                     break
@@ -199,12 +199,12 @@ jobs:
                 
                 if [ -n "$ALL_TAGS" ]; then
                   # 直接检查是否包含该版本的任何标签
-                  if echo "$ALL_TAGS" | grep -q "^${LATEST_VERSION}\(-.*\)\?$"; then
+                  if echo "$ALL_TAGS" | grep -q "${LATEST_VERSION}"; then
                     echo "$REPO already has version $LATEST_VERSION"
                     HAS_VERSION=true
                     
                     # 显示匹配的标签
-                    MATCHING_TAGS=$(echo "$ALL_TAGS" | grep "^${LATEST_VERSION}\(-.*\)\?$" | head -3)
+                    MATCHING_TAGS=$(echo "$ALL_TAGS" | grep "${LATEST_VERSION}" | head -3)
                     echo "Matching tags: $MATCHING_TAGS"
                     break
                   else
