@@ -179,96 +179,57 @@ jobs:
             fi
           done
           
-          # 检查三个仓库的最新版本
+          echo "Latest shadowsocks-rust release: $LATEST_VERSION"
+          
+          # 检查三个仓库是否包含该版本的标签
           REPOS=("shadowsocks-rust" "ssserver-rust" "sslocal-rust")
-          LATEST_VERSIONS=()
+          NEED_BUILD=false
           
           for REPO in "${REPOS[@]}"; do
-            REPO_LATEST=""
+            HAS_VERSION=false
             for i in $(seq 1 $MAX_RETRIES); do
-              echo "Attempt $i of $MAX_RETRIES: Fetching $REPO latest version from GHCR..."
+              echo "Attempt $i of $MAX_RETRIES: Checking if $REPO has version $LATEST_VERSION..."
               
               TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/$REPO:pull" | jq -r '.token // empty')
               
               if [ -n "$TOKEN" ]; then
-                # 获取所有标签
                 ALL_TAGS=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
                   "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list" | \
                   jq -r '.tags[]?')
                 
                 if [ -n "$ALL_TAGS" ]; then
-                  # 笨办法：直接检查是否包含该版本的任何标签
-                  # 首先提取所有标签中的版本号部分
-                  ALL_VERSIONS=""
-                  while IFS= read -r TAG; do
-                    # 提取版本号部分（vX.Y.Z）
-                    if [[ "$TAG" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+) ]]; then
-                      VERSION_PART="${BASH_REMATCH[1]}"
-                      ALL_VERSIONS="${ALL_VERSIONS}${VERSION_PART}\n"
-                    fi
-                  done <<< "$ALL_TAGS"
-                  
-                  # 去重并排序，获取最新版本
-                  if [ -n "$ALL_VERSIONS" ]; then
-                    REPO_LATEST=$(echo -e "$ALL_VERSIONS" | sort -u -V | tail -n1)
-                    echo "$REPO has tags: $(echo "$ALL_TAGS" | head -5 | tr '\n' ' ')..."
-                    echo "$REPO latest version: $REPO_LATEST"
-                    LATEST_VERSIONS+=("$REPO_LATEST")
+                  # 直接检查是否包含该版本的任何标签
+                  if echo "$ALL_TAGS" | grep -q "^${LATEST_VERSION}\(-.*\)\?$"; then
+                    echo "$REPO already has version $LATEST_VERSION"
+                    HAS_VERSION=true
+                    
+                    # 显示匹配的标签
+                    MATCHING_TAGS=$(echo "$ALL_TAGS" | grep "^${LATEST_VERSION}\(-.*\)\?$" | head -3)
+                    echo "Matching tags: $MATCHING_TAGS"
                     break
                   else
-                    echo "No version tags found in $REPO"
-                    LATEST_VERSIONS+=("")
+                    echo "$REPO does not have version $LATEST_VERSION"
+                    # 显示仓库中的标签（前5个）
+                    echo "Available tags in $REPO: $(echo "$ALL_TAGS" | head -5 | tr '\n' ' ')..."
                     break
                   fi
                 else
                   echo "No tags found in $REPO"
-                  LATEST_VERSIONS+=("")
                   break
                 fi
               else
-                echo "Failed to get GHCR token for $REPO, retrying in ${RETRY_DELAY}s..."
-                if [ $i -lt $MAX_RETRIES ]; then
-                  sleep $RETRY_DELAY
+                echo "Failed to get GHCR token for $REPO"
+                if [ $i -eq $MAX_RETRIES ]; then
+                  echo "Assuming $REPO doesn't have version $LATEST_VERSION"
                 else
-                  echo "Warning: Failed to get GHCR token for $REPO"
-                  LATEST_VERSIONS+=("")
-                  break
+                  sleep $RETRY_DELAY
                 fi
               fi
             done
-          done
-          
-          echo "Latest shadowsocks-rust release: $LATEST_VERSION"
-          echo "GHCR versions:"
-          echo "  shadowsocks-rust: ${LATEST_VERSIONS[0]:-none}"
-          echo "  ssserver-rust: ${LATEST_VERSIONS[1]:-none}"
-          echo "  sslocal-rust: ${LATEST_VERSIONS[2]:-none}"
-          
-          # 检查是否需要构建：只要有一个仓库没有该版本或版本较低，就需要构建
-          NEED_BUILD=false
-          LATEST_NUM="${LATEST_VERSION#v}"
-          
-          for i in "${!REPOS[@]}"; do
-            REPO="${REPOS[$i]}"
-            REPO_VERSION="${LATEST_VERSIONS[$i]}"
             
-            if [ -z "$REPO_VERSION" ]; then
-              echo "$REPO has no existing version, will build"
+            if [ "$HAS_VERSION" != true ]; then
+              echo "$REPO is missing version $LATEST_VERSION, will build"
               NEED_BUILD=true
-              break
-            else
-              REPO_NUM="${REPO_VERSION#v}"
-              
-              # 直接使用字符串比较，避免复杂处理
-              if [ "$LATEST_VERSION" = "$REPO_VERSION" ]; then
-                echo "$REPO has same version: $REPO_VERSION"
-              elif [ "$(printf "%s\n%s" "$LATEST_VERSION" "$REPO_VERSION" | sort -V | tail -n1)" = "$LATEST_VERSION" ]; then
-                echo "$REPO has older version ($REPO_VERSION < $LATEST_VERSION), will build"
-                NEED_BUILD=true
-                break
-              else
-                echo "$REPO has newer version ($REPO_VERSION > $LATEST_VERSION), skipping"
-              fi
             fi
           done
           
@@ -276,7 +237,7 @@ jobs:
             echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
             echo "should_build=true" >> $GITHUB_OUTPUT
           else
-            echo "All repositories have latest version or newer, skipping build"
+            echo "All repositories have version $LATEST_VERSION, skipping build"
             echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
             echo "should_build=false" >> $GITHUB_OUTPUT
           fi
