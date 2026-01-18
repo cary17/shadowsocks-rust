@@ -382,20 +382,20 @@ jobs:
           fi
           echo "platforms=$PLATFORMS" >> $GITHUB_OUTPUT
           
-          # 生成标签列表（仅包含版本号标签，不包含 latest 标签）
+          # 生成标签列表（包含版本号标签和带变体的latest标签，但不包含纯latest标签）
           TAGS=""
           
           # 根据变体生成不同的标签
           if [ "$VARIANT" = "server" ]; then
-            # 主仓库标签（shadowsocks-rust）- 所有构建都必须有带版本号的标签
+            # 主仓库标签（shadowsocks-rust）- 版本号标签
             TAGS="$TAGS
             ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server-${BASE}"
             
-            # 服务端专用仓库（ssserver-rust）- 去掉server后缀
+            # 服务端专用仓库（ssserver-rust）- 版本号标签
             TAGS="$TAGS
             ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}-${BASE}"
             
-            # Debian基础镜像的特殊标签（默认指向debian的简写标签）
+            # Debian基础镜像的特殊标签（默认指向debian的简写标签）- 版本号标签
             if [ "$BASE" = "debian" ]; then
               TAGS="$TAGS
               ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}
@@ -403,65 +403,21 @@ jobs:
               ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}"
             fi
             
-            # 自动构建时添加latest标签（非手动或非强制构建）- 除了 latest 本身
-            if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest-${BASE}"
-              
-              # Debian基础镜像的特殊latest标签（除了 latest 本身）
-              if [ "$BASE" = "debian" ]; then
-                TAGS="$TAGS
-                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server
-                ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest"
-              fi
-            fi
-            
-          else # client变体
-            # 主仓库标签（shadowsocks-rust）- client和local标签共存
-            # 所有构建都必须有带版本号的标签
+            # 带变体的latest标签
             TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client-${BASE}
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local-${BASE}"
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server-${BASE}
+            ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest-${BASE}"
             
-            # 客户端专用仓库（sslocal-rust）- 去掉local和client后缀
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}-${BASE}"
-            
-            # Debian基础镜像的特殊标签（默认指向debian的简写标签）
+            # Debian基础镜像的特殊latest标签（带变体）
             if [ "$BASE" = "debian" ]; then
               TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local
-              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}"
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server"
             fi
             
-            # 自动构建时添加latest标签（非手动或非强制构建）- 除了 latest 本身
-            if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
+            # Docker Hub标签（如果启用）- 版本号标签
+            if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
               TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local-${BASE}
-              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest-${BASE}"
-              
-              # Debian基础镜像的特殊latest标签（除了 latest 本身）
-              if [ "$BASE" = "debian" ]; then
-                TAGS="$TAGS
-                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client
-                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local
-                ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest"
-              fi
-            fi
-          fi
-          
-          # Docker Hub标签（如果启用）
-          if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
-            if [ "$VARIANT" = "server" ]; then
-              # Docker Hub主仓库 - 所有构建都必须有带版本号的标签
-              TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server-${BASE}"
-              
-              # Docker Hub服务端专用仓库
-              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server-${BASE}
               ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}-${BASE}"
               
               # Debian基础镜像的特殊标签
@@ -472,28 +428,54 @@ jobs:
                 ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}"
               fi
               
-              # 自动构建时添加latest标签（非手动或非强制构建）- 除了 latest 本身
-              if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest-${BASE}"
-                
-                # Debian基础镜像的特殊latest标签（除了 latest 本身）
-                if [ "$BASE" = "debian" ]; then
-                  TAGS="$TAGS
-                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server
-                  ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest"
-                fi
-              fi
+              # 带变体的latest标签
+              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server-${BASE}
+              ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest-${BASE}"
               
-            else # client变体
-              # Docker Hub主仓库 - 所有构建都必须有带版本号的标签
+              # Debian基础镜像的特殊latest标签（带变体）
+              if [ "$BASE" = "debian" ]; then
+                TAGS="$TAGS
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server"
+              fi
+            fi
+            
+          else # client变体
+            # 主仓库标签（shadowsocks-rust）- 版本号标签
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client-${BASE}
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local-${BASE}"
+            
+            # 客户端专用仓库（sslocal-rust）- 版本号标签
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}-${BASE}"
+            
+            # Debian基础镜像的特殊标签（默认指向debian的简写标签）- 版本号标签
+            if [ "$BASE" = "debian" ]; then
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local
+              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}"
+            fi
+            
+            # 带变体的latest标签
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client-${BASE}
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local-${BASE}
+            ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest-${BASE}"
+            
+            # Debian基础镜像的特殊latest标签（带变体）
+            if [ "$BASE" = "debian" ]; then
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local"
+            fi
+            
+            # Docker Hub标签（如果启用）- 版本号标签
+            if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
               TAGS="$TAGS
               ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-client-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local-${BASE}"
-              
-              # Docker Hub客户端专用仓库
-              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local-${BASE}
               ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}-${BASE}"
               
               # Debian基础镜像的特殊标签
@@ -504,20 +486,17 @@ jobs:
                 ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}"
               fi
               
-              # 自动构建时添加latest标签（非手动或非强制构建）- 除了 latest 本身
-              if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
+              # 带变体的latest标签
+              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client-${BASE}
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local-${BASE}
+              ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest-${BASE}"
+              
+              # Debian基础镜像的特殊latest标签（带变体）
+              if [ "$BASE" = "debian" ]; then
                 TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local-${BASE}
-                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest-${BASE}"
-                
-                # Debian基础镜像的特殊latest标签（除了 latest 本身）
-                if [ "$BASE" = "debian" ]; then
-                  TAGS="$TAGS
-                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client
-                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local
-                  ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest"
-                fi
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local"
               fi
             fi
           fi
@@ -525,55 +504,7 @@ jobs:
           # 清理标签列表（去除空行和重复）
           TAGS=$(echo "$TAGS" | sed '/^$/d' | sort -u)
           
-          echo "Generated latest tags:"
-          echo "$TAGS"
-          
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAGS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Build and push latest tags only
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.${{ matrix.base }}
-          platforms: ${{ steps.prepare.outputs.platforms }}
-          push: true
-          tags: ${{ steps.prepare.outputs.tags }}
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
-          cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
-          target: ${{ matrix.variant }}
-        continue-on-error: true
-        id: build-push-latest
-
-      - name: Build and push latest to GHCR only (fallback)
-        if: steps.build-push-latest.outcome == 'failure' && matrix.base == 'debian'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.${{ matrix.base }}
-          platforms: ${{ steps.prepare.outputs.platforms }}
-          push: true
-          tags: |
-            ${{ env.GHCR_IMAGE_BASE }}/${{ matrix.variant == 'server' && 'ssserver' || 'sslocal' }}-rust:latest
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
-          cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
-          target: ${{ matrix.variant }}
-
-      - name: Notify about Docker Hub push failure for latest
-        if: steps.build-push-latest.outcome == 'failure'
-        run: |
-          echo "::warning::Failed to push latest tags to Docker Hub. Latest tags pushed to GHCR only."TAGS=$(echo "$TAGS" | sed '/^$/d' | sort -u)
-          
-          echo "Generated tags:"
+          echo "Generated tags (version and latest variants):"
           echo "$TAGS"
           
           echo "tags<<EOF" >> $GITHUB_OUTPUT
@@ -608,7 +539,9 @@ jobs:
           push: true
           tags: |
             ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${{ needs.check-version.outputs.new_version }}-${{ matrix.variant }}-${{ matrix.base }}
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-${{ matrix.variant }}-${{ matrix.base }}
             ${{ env.GHCR_IMAGE_BASE }}/${{ matrix.variant == 'server' && 'ssserver' || 'sslocal' }}-rust:${{ needs.check-version.outputs.new_version }}-${{ matrix.base }}
+            ${{ env.GHCR_IMAGE_BASE }}/${{ matrix.variant == 'server' && 'ssserver' || 'sslocal' }}-rust:latest-${{ matrix.base }}
           build-args: |
             VERSION=${{ needs.check-version.outputs.new_version }}
             ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
@@ -622,19 +555,13 @@ jobs:
         run: |
           echo "::warning::Failed to push to Docker Hub. Image pushed to GHCR only."
 
-  build-latest-images:
+  push-latest-tags:
     needs: [check-version, build-images]
-    # 所有构建都推送 latest 标签
     if: needs.check-version.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        base: [debian, alpine]
-        variant: [server, client]
-      fail-fast: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -668,50 +595,281 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Prepare latest tags and platforms
-        id: prepare
+      - name: Prepare pure latest tags
+        id: prepare-latest
         run: |
           VERSION="${{ needs.check-version.outputs.new_version }}"
-          BASE="${{ matrix.base }}"
-          VARIANT="${{ matrix.variant }}"
+          VERSION_SOURCE="${{ needs.check-version.outputs.version_source }}"
           
-          echo "Building latest tags for version: $VERSION"
+          echo "Preparing pure latest tags for version: $VERSION (source: $VERSION_SOURCE)"
           
-          # 设置平台
-          if [ "$BASE" = "alpine" ]; then
-            PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/386"
-          else
-            PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7"
-          fi
-          echo "platforms=$PLATFORMS" >> $GITHUB_OUTPUT
-          
-          # 生成 latest 标签列表（每个仓库只有一个 latest 标签）
-          # 只有 Debian server 变体推送 latest 标签
+          # 只推送纯 latest 标签（不带变体）
           TAGS=""
           
-          if [ "$BASE" = "debian" ]; then
-            if [ "$VARIANT" = "server" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest
-              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest"
-              
-              # Docker Hub标签（如果启用）
-              if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest
-                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest"
-              fi
-              
-            else # client变体
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest"
-              
-              # Docker Hub标签（如果启用）
-              if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest"
-              fi
-            fi
+          # 主仓库的纯 latest 标签
+          TAGS="$TAGS
+          ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest"
+          
+          # 专用仓库的纯 latest 标签
+          TAGS="$TAGS
+          ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest
+          ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest"
+          
+          # Docker Hub标签（如果启用）
+          if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
+            TAGS="$TAGS
+            ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest"
           fi
           
           # 清理标签列表（去除空行和重复）
+          TAGS=$(echo "$TAGS" | sed '/^$/d' | sort -u)
+          
+          echo "Generated pure latest tags:"
+          echo "$TAGS"
+          
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAGS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # 准备用于manifest的源标签
+          # 使用 Debian server 变体作为纯 latest 的源
+          SRC_TAG_GHCR="${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server-debian"
+          SRC_TAG_DOCKERHUB="${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server-debian"
+          
+          echo "source_tag_ghcr=$SRC_TAG_GHCR" >> $GITHUB_OUTPUT
+          echo "source_tag_dockerhub=$SRC_TAG_DOCKERHUB" >> $GITHUB_OUTPUT
+
+      - name: Create and push pure latest manifests (GHCR)
+        run: |
+          echo "Creating pure latest manifests for GHCR..."
+          
+          # 获取要推送的标签列表
+          TAGS="${{ steps.prepare-latest.outputs.tags }}"
+          
+          # 过滤出GHCR的标签
+          GHCR_TAGS=$(echo "$TAGS" | grep "^${{ env.GHCR_IMAGE_BASE }}/" || true)
+          
+          if [ -n "$GHCR_TAGS" ]; then
+            echo "GHCR pure latest tags to push:"
+            echo "$GHCR_TAGS"
+            
+            SRC_TAG="${{ steps.prepare-latest.outputs.source_tag_ghcr }}"
+            
+            # 检查源镜像是否存在
+            echo "Checking if source tag exists: $SRC_TAG"
+            docker buildx imagetools inspect $SRC_TAG >/dev/null 2>&1
+            if [ $? -eq 0 ]; then
+              echo "Source tag found: $SRC_TAG"
+              
+              # 为每个GHCR目标标签创建并推送manifest
+              while IFS= read -r DEST_TAG; do
+                if [ -n "$DEST_TAG" ]; then
+                  echo "Creating manifest: $SRC_TAG -> $DEST_TAG"
+                  
+                  # 创建并推送新的manifest
+                  docker buildx imagetools create -t $DEST_TAG $SRC_TAG
+                  
+                  # 验证推送是否成功
+                  docker buildx imagetools inspect $DEST_TAG >/dev/null 2>&1
+                  if [ $? -eq 0 ]; then
+                    echo "✓ Successfully pushed pure latest manifest: $DEST_TAG"
+                  else
+                    echo "✗ Failed to push pure latest manifest: $DEST_TAG"
+                  fi
+                fi
+              done <<< "$GHCR_TAGS"
+            else
+              echo "✗ Source tag not found: $SRC_TAG"
+              echo "Will try to use version tag instead..."
+              
+              # 尝试使用版本标签作为源
+              VERSION="${{ needs.check-version.outputs.new_version }}"
+              SRC_TAG_VERSION="${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server-debian"
+              
+              echo "Trying version tag: $SRC_TAG_VERSION"
+              docker buildx imagetools inspect $SRC_TAG_VERSION >/dev/null 2>&1
+              if [ $? -eq 0 ]; then
+                echo "Version tag found: $SRC_TAG_VERSION"
+                
+                # 为每个GHCR目标标签创建并推送manifest
+                while IFS= read -r DEST_TAG; do
+                  if [ -n "$DEST_TAG" ]; then
+                    echo "Creating manifest: $SRC_TAG_VERSION -> $DEST_TAG"
+                    
+                    # 创建并推送新的manifest
+                    docker buildx imagetools create -t $DEST_TAG $SRC_TAG_VERSION
+                    
+                    # 验证推送是否成功
+                    docker buildx imagetools inspect $DEST_TAG >/dev/null 2>&1
+                    if [ $? -eq 0 ]; then
+                      echo "✓ Successfully pushed pure latest manifest: $DEST_TAG"
+                    else
+                      echo "✗ Failed to push pure latest manifest: $DEST_TAG"
+                    fi
+                  fi
+                done <<< "$GHCR_TAGS"
+              else
+                echo "✗ Version tag also not found: $SRC_TAG_VERSION"
+              fi
+            fi
+          else
+            echo "No GHCR pure latest tags to push"
+          fi
+
+      - name: Create and push pure latest manifests (Docker Hub)
+        if: steps.dockerhub.outputs.enabled == 'true'
+        run: |
+          echo "Creating pure latest manifests for Docker Hub..."
+          
+          # 获取要推送的标签列表
+          TAGS="${{ steps.prepare-latest.outputs.tags }}"
+          
+          # 过滤出Docker Hub的标签
+          DOCKERHUB_TAGS=$(echo "$TAGS" | grep "^${{ secrets.DOCKERHUB_USERNAME }}/" || true)
+          
+          if [ -n "$DOCKERHUB_TAGS" ]; then
+            echo "Docker Hub pure latest tags to push:"
+            echo "$DOCKERHUB_TAGS"
+            
+            SRC_TAG="${{ steps.prepare-latest.outputs.source_tag_dockerhub }}"
+            
+            # 检查源镜像是否存在
+            echo "Checking if source tag exists: $SRC_TAG"
+            docker buildx imagetools inspect $SRC_TAG >/dev/null 2>&1
+            if [ $? -eq 0 ]; then
+              echo "Source tag found: $SRC_TAG"
+              
+              # 为每个Docker Hub目标标签创建并推送manifest
+              while IFS= read -r DEST_TAG; do
+                if [ -n "$DEST_TAG" ]; then
+                  echo "Creating manifest: $SRC_TAG -> $DEST_TAG"
+                  
+                  # 创建并推送新的manifest
+                  docker buildx imagetools create -t $DEST_TAG $SRC_TAG
+                  
+                  # 验证推送是否成功
+                  docker buildx imagetools inspect $DEST_TAG >/dev/null 2>&1
+                  if [ $? -eq 0 ]; then
+                    echo "✓ Successfully pushed pure latest manifest: $DEST_TAG"
+                  else
+                    echo "✗ Failed to push pure latest manifest: $DEST_TAG"
+                  fi
+                fi
+              done <<< "$DOCKERHUB_TAGS"
+            else
+              echo "✗ Source tag not found: $SRC_TAG"
+              echo "Will try to use GHCR source tag instead..."
+              
+              # 尝试使用GHCR的源标签
+              SRC_TAG_GHCR="${{ steps.prepare-latest.outputs.source_tag_ghcr }}"
+              
+              echo "Trying GHCR source tag: $SRC_TAG_GHCR"
+              docker buildx imagetools inspect $SRC_TAG_GHCR >/dev/null 2>&1
+              if [ $? -eq 0 ]; then
+                echo "GHCR source tag found: $SRC_TAG_GHCR"
+                
+                # 为每个Docker Hub目标标签创建并推送manifest
+                while IFS= read -r DEST_TAG; do
+                  if [ -n "$DEST_TAG" ]; then
+                    echo "Creating manifest: $SRC_TAG_GHCR -> $DEST_TAG"
+                    
+                    # 创建并推送新的manifest
+                    docker buildx imagetools create -t $DEST_TAG $SRC_TAG_GHCR
+                    
+                    # 验证推送是否成功
+                    docker buildx imagetools inspect $DEST_TAG >/dev/null 2>&1
+                    if [ $? -eq 0 ]; then
+                      echo "✓ Successfully pushed pure latest manifest: $DEST_TAG"
+                    else
+                      echo "✗ Failed to push pure latest manifest: $DEST_TAG"
+                    fi
+                  fi
+                done <<< "$DOCKERHUB_TAGS"
+              else
+                echo "✗ GHCR source tag also not found: $SRC_TAG_GHCR"
+                echo "Will try to use version tag instead..."
+                
+                # 尝试使用版本标签作为源
+                VERSION="${{ needs.check-version.outputs.new_version }}"
+                SRC_TAG_VERSION="${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server-debian"
+                
+                echo "Trying version tag: $SRC_TAG_VERSION"
+                docker buildx imagetools inspect $SRC_TAG_VERSION >/dev/null 2>&1
+                if [ $? -eq 0 ]; then
+                  echo "Version tag found: $SRC_TAG_VERSION"
+                  
+                  # 为每个Docker Hub目标标签创建并推送manifest
+                  while IFS= read -r DEST_TAG; do
+                    if [ -n "$DEST_TAG" ]; then
+                      echo "Creating manifest: $SRC_TAG_VERSION -> $DEST_TAG"
+                      
+                      # 创建并推送新的manifest
+                      docker buildx imagetools create -t $DEST_TAG $SRC_TAG_VERSION
+                      
+                      # 验证推送是否成功
+                      docker buildx imagetools inspect $DEST_TAG >/dev/null 2>&1
+                      if [ $? -eq 0 ]; then
+                        echo "✓ Successfully pushed pure latest manifest: $DEST_TAG"
+                      else
+                        echo "✗ Failed to push pure latest manifest: $DEST_TAG"
+                      fi
+                    fi
+                  done <<< "$DOCKERHUB_TAGS"
+                else
+                  echo "✗ Version tag also not found: $SRC_TAG_VERSION"
+                fi
+              fi
+            fi
+          else
+            echo "No Docker Hub pure latest tags to push"
+          fi
+
+      - name: Verify pure latest tags
+        run: |
+          echo "Verifying pure latest tags were pushed successfully..."
+          
+          # 检查GHCR的pure latest标签
+          echo "Checking GHCR pure latest tags:"
+          LATEST_TAGS_GHCR=$(echo "${{ steps.prepare-latest.outputs.tags }}" | grep "^${{ env.GHCR_IMAGE_BASE }}/" || true)
+          
+          for TAG in $LATEST_TAGS_GHCR; do
+            echo -n "Checking $TAG... "
+            docker buildx imagetools inspect $TAG >/dev/null 2>&1
+            if [ $? -eq 0 ]; then
+              echo "✓ OK"
+            else
+              echo "✗ FAILED"
+            fi
+          done
+          
+          # 检查Docker Hub的pure latest标签（如果启用）
+          if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
+            echo ""
+            echo "Checking Docker Hub pure latest tags:"
+            LATEST_TAGS_DOCKERHUB=$(echo "${{ steps.prepare-latest.outputs.tags }}" | grep "^${{ secrets.DOCKERHUB_USERNAME }}/" || true)
+            
+            for TAG in $LATEST_TAGS_DOCKERHUB; do
+              echo -n "Checking $TAG... "
+              docker buildx imagetools inspect $TAG >/dev/null 2>&1
+              if [ $? -eq 0 ]; then
+                echo "✓ OK"
+              else
+                echo "✗ FAILED"
+              fi
+            done
+          fi
+          
+          echo ""
+          echo "Summary of pure latest tags pushed:"
+          echo "=================================="
+          echo "1. ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest"
+          echo "2. ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest"
+          echo "3. ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest"
+          
+          if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
+            echo "4. ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest"
+            echo "5. ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest"
+            echo "6. ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest"
+          fi
