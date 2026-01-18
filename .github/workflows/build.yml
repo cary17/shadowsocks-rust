@@ -1,560 +1,3 @@
-name: Build and Push Docker Images
-
-on:
-  schedule:
-    - cron: '0 * * * *'
-  workflow_dispatch:
-    inputs:
-      debian_version:
-        description: 'Debian version'
-        required: false
-        default: 'stable'
-      force_build:
-        description: 'Force build even if version exists'
-        required: false
-        default: 'false'
-      version:
-        description: 'Shadowsocks-rust version (e.g., v1.17.0, leave empty for latest)'
-        required: false
-        default: ''
-        type: string
-
-env:
-  GHCR_REGISTRY: ghcr.io
-  GHCR_IMAGE_BASE: ghcr.io/${{ github.repository_owner }}
-
-jobs:
-  check-version:
-    runs-on: ubuntu-latest
-    outputs:
-      new_version: ${{ steps.check.outputs.new_version }}
-      should_build: ${{ steps.check.outputs.should_build }}
-      version_source: ${{ steps.check.outputs.version_source }}
-    steps:
-      - name: Check for new release
-        id: check
-        env:
-          ACTIONS_TOKEN: ${{ secrets.ACTIONS_TOKEN }}
-        run: |
-          MAX_RETRIES=5
-          RETRY_DELAY=10
-          
-          # 检查是否有手动指定的版本
-          MANUAL_VERSION="${{ github.event.inputs.version }}"
-          FORCE_BUILD="${{ github.event.inputs.force_build }}"
-          
-          if [ -n "$MANUAL_VERSION" ]; then
-            echo "Using manually specified version: $MANUAL_VERSION"
-            # 确保版本号以 'v' 开头
-            if [[ ! "$MANUAL_VERSION" =~ ^v ]]; then
-              MANUAL_VERSION="v$MANUAL_VERSION"
-            fi
-            # 清理版本号
-            MANUAL_VERSION=$(echo "$MANUAL_VERSION" | tr -d '\n\r\t ')
-            echo "new_version=${MANUAL_VERSION}" >> $GITHUB_OUTPUT
-            echo "version_source=manual" >> $GITHUB_OUTPUT
-            
-            # 检查是否强制构建
-            if [ "$FORCE_BUILD" = "true" ]; then
-              echo "Force build enabled for specified version: $MANUAL_VERSION"
-              echo "should_build=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-            
-            # 非强制构建：检查三个仓库是否已存在该版本
-            REPOS=("shadowsocks-rust" "ssserver-rust" "sslocal-rust")
-            VERSION_EXISTS=false
-            
-            for REPO in "${REPOS[@]}"; do
-              for i in $(seq 1 $MAX_RETRIES); do
-                echo "Attempt $i of $MAX_RETRIES: Checking if version exists in $REPO..."
-                
-                TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/$REPO:pull" | jq -r '.token // empty')
-                
-                if [ -n "$TOKEN" ]; then
-                  # 分页获取标签并检查（不拼接，直接在每页中查找）
-                  FOUND=false
-                  PAGE=1
-                  LAST_TAG=""
-                  
-                  while [ $PAGE -le 10 ]; do
-                    if [ -z "$LAST_TAG" ]; then
-                      TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
-                        "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000" | \
-                        jq -r '.tags[]?' 2>/dev/null)
-                    else
-                      TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
-                        "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000&last=${LAST_TAG}" | \
-                        jq -r '.tags[]?' 2>/dev/null)
-                    fi
-                    
-                    if [ -z "$TAGS_PAGE" ]; then
-                      break
-                    fi
-                    
-                    # 在当前页中查找匹配的标签
-                    if [ "$REPO" = "shadowsocks-rust" ]; then
-                      if echo "$TAGS_PAGE" | grep -q "^${MANUAL_VERSION}"; then
-                        echo "Version $MANUAL_VERSION found in $REPO (page $PAGE)"
-                        FOUND=true
-                        MATCHING_TAGS=$(echo "$TAGS_PAGE" | grep "^${MANUAL_VERSION}" | head -5)
-                        echo "Matching tags: $MATCHING_TAGS"
-                        break
-                      fi
-                    else
-                      if echo "$TAGS_PAGE" | grep -q -E "^${MANUAL_VERSION}(-debian|-alpine)?$"; then
-                        echo "Version $MANUAL_VERSION found in $REPO (page $PAGE)"
-                        FOUND=true
-                        MATCHING_TAGS=$(echo "$TAGS_PAGE" | grep -E "^${MANUAL_VERSION}(-debian|-alpine)?$" | head -3)
-                        echo "Matching tags: $MATCHING_TAGS"
-                        break
-                      fi
-                    fi
-                    
-                    TAG_COUNT=$(echo "$TAGS_PAGE" | wc -l)
-                    if [ "$TAG_COUNT" -lt 1000 ]; then
-                      break
-                    fi
-                    
-                    LAST_TAG=$(echo "$TAGS_PAGE" | tail -1)
-                    PAGE=$((PAGE + 1))
-                  done
-                  
-                  if [ "$FOUND" = true ]; then
-                    VERSION_EXISTS=true
-                    break
-                  else
-                    echo "Version $MANUAL_VERSION not found in $REPO after checking $PAGE pages"
-                  fi
-                else
-                  echo "Failed to get GHCR token for $REPO"
-                  if [ $i -eq $MAX_RETRIES ]; then
-                    echo "Assuming version doesn't exist in $REPO"
-                  else
-                    sleep $RETRY_DELAY
-                  fi
-                fi
-              done
-            done
-            
-            if [ "$VERSION_EXISTS" = true ]; then
-              echo "Version exists in at least one repository, skipping build"
-              echo "should_build=false" >> $GITHUB_OUTPUT
-            else
-              echo "Version not found in any repository, will build"
-              echo "should_build=true" >> $GITHUB_OUTPUT
-            fi
-            exit 0
-          fi
-          
-          # 没有指定版本，获取最新版本
-          echo "No manual version specified, fetching latest release..."
-          echo "version_source=auto" >> $GITHUB_OUTPUT
-          
-          # 如果强制构建，直接获取最新版本并构建
-          if [ "$FORCE_BUILD" = "true" ]; then
-            echo "Force build enabled, fetching latest version only..."
-            
-            for i in $(seq 1 $MAX_RETRIES); do
-              echo "Attempt $i of $MAX_RETRIES: Fetching shadowsocks-rust latest version..."
-              
-              # 尝试使用 API token
-              if [ -n "$ACTIONS_TOKEN" ]; then
-                LATEST_VERSION=$(curl -fsSL \
-                  -H "Authorization: token $ACTIONS_TOKEN" \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest | jq -r .tag_name)
-              else
-                LATEST_VERSION=$(curl -fsSL \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest | jq -r .tag_name)
-              fi
-              
-              if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "null" ]; then
-                echo "Successfully got shadowsocks-rust version: $LATEST_VERSION"
-                # 清理版本号
-                LATEST_VERSION=$(echo "$LATEST_VERSION" | tr -d '\n\r\t ')
-                echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-                echo "should_build=true" >> $GITHUB_OUTPUT
-                exit 0
-              else
-                echo "Failed to get valid version, retrying in ${RETRY_DELAY}s..."
-                if [ $i -lt $MAX_RETRIES ]; then
-                  sleep $RETRY_DELAY
-                else
-                  echo "Error: Failed to get shadowsocks-rust version after $MAX_RETRIES attempts"
-                  exit 1
-                fi
-              fi
-            done
-          fi
-          
-          # 正常流程：获取最新版本
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "Attempt $i of $MAX_RETRIES: Fetching shadowsocks-rust latest version..."
-            
-            # 尝试使用 API token
-            if [ -n "$ACTIONS_TOKEN" ]; then
-              LATEST_VERSION=$(curl -fsSL \
-                -H "Authorization: token $ACTIONS_TOKEN" \
-                -H "Accept: application/vnd.github.v3+json" \
-                https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest | jq -r .tag_name)
-            else
-              LATEST_VERSION=$(curl -fsSL \
-                -H "Accept: application/vnd.github.v3+json" \
-                https://api.github.com/repos/shadowsocks/shadowsocks-rust/releases/latest | jq -r .tag_name)
-            fi
-            
-            if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "null" ]; then
-              echo "Successfully got shadowsocks-rust version: $LATEST_VERSION"
-              # 清理版本号
-              LATEST_VERSION=$(echo "$LATEST_VERSION" | tr -d '\n\r\t ')
-              break
-            else
-              echo "Failed to get valid version, retrying in ${RETRY_DELAY}s..."
-              if [ $i -lt $MAX_RETRIES ]; then
-                sleep $RETRY_DELAY
-              else
-                echo "Error: Failed to get shadowsocks-rust version after $MAX_RETRIES attempts"
-                exit 1
-              fi
-            fi
-          done
-          
-          echo "Latest shadowsocks-rust release: $LATEST_VERSION"
-          
-          # 检查三个仓库是否包含该版本的标签
-          REPOS=("shadowsocks-rust" "ssserver-rust" "sslocal-rust")
-          NEED_BUILD=false
-          
-          for REPO in "${REPOS[@]}"; do
-            HAS_VERSION=false
-            for i in $(seq 1 $MAX_RETRIES); do
-              echo "Attempt $i of $MAX_RETRIES: Checking if $REPO has version $LATEST_VERSION..."
-              
-              TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:${{ github.repository_owner }}/$REPO:pull" | jq -r '.token // empty')
-              
-              if [ -n "$TOKEN" ]; then
-                # 分页获取标签并检查（不拼接，直接在每页中查找）
-                PAGE=1
-                LAST_TAG=""
-                
-                while [ $PAGE -le 10 ]; do
-                  if [ -z "$LAST_TAG" ]; then
-                    TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
-                      "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000" | \
-                      jq -r '.tags[]?' 2>/dev/null)
-                  else
-                    TAGS_PAGE=$(curl -fsSL -H "Authorization: Bearer $TOKEN" \
-                      "https://ghcr.io/v2/${{ github.repository_owner }}/$REPO/tags/list?n=1000&last=${LAST_TAG}" | \
-                      jq -r '.tags[]?' 2>/dev/null)
-                  fi
-                  
-                  if [ -z "$TAGS_PAGE" ]; then
-                    break
-                  fi
-                  
-                  # 在当前页中查找匹配的标签
-                  if [ "$REPO" = "shadowsocks-rust" ]; then
-                    if echo "$TAGS_PAGE" | grep -q "^${LATEST_VERSION}"; then
-                      echo "$REPO already has version $LATEST_VERSION (found on page $PAGE)"
-                      HAS_VERSION=true
-                      MATCHING_TAGS=$(echo "$TAGS_PAGE" | grep "^${LATEST_VERSION}" | head -5)
-                      echo "Matching tags: $MATCHING_TAGS"
-                      break
-                    fi
-                  else
-                    if echo "$TAGS_PAGE" | grep -q -E "^${LATEST_VERSION}(-debian|-alpine)?$"; then
-                      echo "$REPO already has version $LATEST_VERSION (found on page $PAGE)"
-                      HAS_VERSION=true
-                      MATCHING_TAGS=$(echo "$TAGS_PAGE" | grep -E "^${LATEST_VERSION}(-debian|-alpine)?$" | head -3)
-                      echo "Matching tags: $MATCHING_TAGS"
-                      break
-                    fi
-                  fi
-                  
-                  TAG_COUNT=$(echo "$TAGS_PAGE" | wc -l)
-                  if [ "$TAG_COUNT" -lt 1000 ]; then
-                    break
-                  fi
-                  
-                  LAST_TAG=$(echo "$TAGS_PAGE" | tail -1)
-                  PAGE=$((PAGE + 1))
-                done
-                
-                if [ "$HAS_VERSION" != true ]; then
-                  echo "$REPO does not have version $LATEST_VERSION (checked $PAGE pages)"
-                fi
-                break
-              else
-                echo "Failed to get GHCR token for $REPO"
-                if [ $i -eq $MAX_RETRIES ]; then
-                  echo "Assuming $REPO doesn't have version $LATEST_VERSION"
-                else
-                  sleep $RETRY_DELAY
-                fi
-              fi
-            done
-            
-            if [ "$HAS_VERSION" != true ]; then
-              echo "$REPO is missing version $LATEST_VERSION, will build"
-              NEED_BUILD=true
-            fi
-          done
-          
-          if [ "$NEED_BUILD" = true ]; then
-            echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-            echo "should_build=true" >> $GITHUB_OUTPUT
-          else
-            echo "All repositories have version $LATEST_VERSION, skipping build"
-            echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
-            echo "should_build=false" >> $GITHUB_OUTPUT
-          fi
-
-  build-images:
-    needs: check-version
-    if: needs.check-version.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      matrix:
-        base: [debian, alpine]
-        variant: [server, client]
-      fail-fast: false  # 允许一个失败时其他继续
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.GHCR_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check Docker Hub credentials
-        id: dockerhub
-        run: |
-          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
-            echo "enabled=true" >> $GITHUB_OUTPUT
-          else
-            echo "enabled=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Log in to Docker Hub
-        if: steps.dockerhub.outputs.enabled == 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Prepare tags and platforms
-        id: prepare
-        run: |
-          REPO_NAME="${{ github.event.repository.name }}"
-          VERSION="${{ needs.check-version.outputs.new_version }}"
-          VERSION_SOURCE="${{ needs.check-version.outputs.version_source }}"
-          BASE="${{ matrix.base }}"
-          VARIANT="${{ matrix.variant }}"
-          FORCE_BUILD="${{ github.event.inputs.force_build }}"
-          
-          echo "Building version: $VERSION (source: $VERSION_SOURCE, force: $FORCE_BUILD)"
-          
-          # 验证版本号格式
-          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Invalid version format: $VERSION"
-            exit 1
-          fi
-          
-          # 设置平台
-          if [ "$BASE" = "alpine" ]; then
-            PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/386"
-          else
-            PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7"
-          fi
-          echo "platforms=$PLATFORMS" >> $GITHUB_OUTPUT
-          
-          # 生成标签列表（包含版本号标签和带变体的latest标签，但不包含纯latest标签）
-          TAGS=""
-          
-          # 根据变体生成不同的标签
-          if [ "$VARIANT" = "server" ]; then
-            # 主仓库标签（shadowsocks-rust）- 版本号标签
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server-${BASE}"
-            
-            # 服务端专用仓库（ssserver-rust）- 版本号标签
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}-${BASE}"
-            
-            # Debian基础镜像的特殊标签（默认指向debian的简写标签）- 版本号标签
-            if [ "$BASE" = "debian" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server
-              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}"
-            fi
-            
-            # 带变体的latest标签
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server-${BASE}
-            ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest-${BASE}"
-            
-            # Debian基础镜像的特殊latest标签（带变体）
-            if [ "$BASE" = "debian" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server"
-            fi
-            
-            # Docker Hub标签（如果启用）- 版本号标签
-            if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
-              TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}-${BASE}"
-              
-              # Debian基础镜像的特殊标签
-              if [ "$BASE" = "debian" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server
-                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}"
-              fi
-              
-              # 带变体的latest标签
-              TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest-${BASE}"
-              
-              # Debian基础镜像的特殊latest标签（带变体）
-              if [ "$BASE" = "debian" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server"
-              fi
-            fi
-            
-          else # client变体
-            # 主仓库标签（shadowsocks-rust）- 版本号标签
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client-${BASE}
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local-${BASE}"
-            
-            # 客户端专用仓库（sslocal-rust）- 版本号标签
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}-${BASE}"
-            
-            # Debian基础镜像的特殊标签（默认指向debian的简写标签）- 版本号标签
-            if [ "$BASE" = "debian" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local
-              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}"
-            fi
-            
-            # 带变体的latest标签
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client-${BASE}
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local-${BASE}
-            ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest-${BASE}"
-            
-            # Debian基础镜像的特殊latest标签（带变体）
-            if [ "$BASE" = "debian" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local"
-            fi
-            
-            # Docker Hub标签（如果启用）- 版本号标签
-            if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
-              TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-client-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}-${BASE}"
-              
-              # Debian基础镜像的特殊标签
-              if [ "$BASE" = "debian" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-client
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local
-                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}"
-              fi
-              
-              # 带变体的latest标签
-              TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest-${BASE}"
-              
-              # Debian基础镜像的特殊latest标签（带变体）
-              if [ "$BASE" = "debian" ]; then
-                TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local"
-              fi
-            fi
-          fi
-          
-          # 清理标签列表（去除空行和重复）
-          TAGS=$(echo "$TAGS" | sed '/^$/d' | sort -u)
-          
-          echo "Generated tags (version and latest variants):"
-          echo "$TAGS"
-          
-          echo "tags<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAGS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.${{ matrix.base }}
-          platforms: ${{ steps.prepare.outputs.platforms }}
-          push: true
-          tags: ${{ steps.prepare.outputs.tags }}
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
-          cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
-          target: ${{ matrix.variant }}
-        continue-on-error: true
-        id: build-push
-
-      - name: Build and push to GHCR only (fallback)
-        if: steps.build-push.outcome == 'failure'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.${{ matrix.base }}
-          platforms: ${{ steps.prepare.outputs.platforms }}
-          push: true
-          tags: |
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${{ needs.check-version.outputs.new_version }}-${{ matrix.variant }}-${{ matrix.base }}
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-${{ matrix.variant }}-${{ matrix.base }}
-            ${{ env.GHCR_IMAGE_BASE }}/${{ matrix.variant == 'server' && 'ssserver' || 'sslocal' }}-rust:${{ needs.check-version.outputs.new_version }}-${{ matrix.base }}
-            ${{ env.GHCR_IMAGE_BASE }}/${{ matrix.variant == 'server' && 'ssserver' || 'sslocal' }}-rust:latest-${{ matrix.base }}
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
-          cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
-          target: ${{ matrix.variant }}
-
-      - name: Notify about Docker Hub push failure
-        if: steps.build-push.outcome == 'failure'
-        run: |
-          echo "::warning::Failed to push to Docker Hub. Image pushed to GHCR only."
-
   build-pure-tags:
     needs: [check-version, build-images]
     if: needs.check-version.outputs.should_build == 'true'
@@ -597,39 +40,33 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Prepare pure tags
+      - name: Prepare pure latest tags
         id: prepare-pure
         run: |
           VERSION="${{ needs.check-version.outputs.new_version }}"
           
-          echo "Preparing pure tags for version: $VERSION"
+          echo "Preparing pure latest tags for version: $VERSION"
           echo ""
-          echo "Will build the following pure tags (each as a separate image):"
-          echo "==============================================================="
+          echo "Will build the following pure latest tags (each as a separate image with only 'latest' tag):"
+          echo "=========================================================================================="
           echo ""
           echo "GHCR:"
-          echo "  1. ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest"
-          echo "  2. ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:$VERSION"
-          echo "  3. ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest"
-          echo "  4. ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:$VERSION"
-          echo "  5. ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest"
-          echo "  6. ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:$VERSION"
+          echo "  1. ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest (server-debian)"
+          echo "  2. ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest (server-debian)"
+          echo "  3. ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest (client-debian)"
           
           if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
             echo ""
             echo "Docker Hub:"
-            echo "  1. ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest"
-            echo "  2. ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:$VERSION"
-            echo "  3. ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest"
-            echo "  4. ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:$VERSION"
-            echo "  5. ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest"
-            echo "  6. ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:$VERSION"
+            echo "  1. ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest (server-debian)"
+            echo "  2. ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest (server-debian)"
+            echo "  3. ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest (client-debian)"
           fi
           
           # 存储信息供后续步骤使用
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Build and push pure tags - shadowsocks-rust:latest (server)
+      - name: Build and push pure latest tags - shadowsocks-rust:latest (server)
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -648,26 +85,7 @@ jobs:
           target: server
         continue-on-error: true
 
-      - name: Build and push pure tags - shadowsocks-rust:[version] (server)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.debian
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: true
-          tags: |
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${{ needs.check-version.outputs.new_version }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${{ needs.check-version.outputs.new_version }}
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
-          cache-from: type=gha,scope=pure-shadowsocks-version
-          cache-to: type=gha,mode=max,scope=pure-shadowsocks-version
-          target: server
-        continue-on-error: true
-
-      - name: Build and push pure tags - ssserver-rust:latest (server)
+      - name: Build and push pure latest tags - ssserver-rust:latest (server)
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -686,26 +104,7 @@ jobs:
           target: server
         continue-on-error: true
 
-      - name: Build and push pure tags - ssserver-rust:[version] (server)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.debian
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: true
-          tags: |
-            ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${{ needs.check-version.outputs.new_version }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${{ needs.check-version.outputs.new_version }}
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
-          cache-from: type=gha,scope=pure-ssserver-version
-          cache-to: type=gha,mode=max,scope=pure-ssserver-version
-          target: server
-        continue-on-error: true
-
-      - name: Build and push pure tags - sslocal-rust:latest (client)
+      - name: Build and push pure latest tags - sslocal-rust:latest (client)
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -724,43 +123,21 @@ jobs:
           target: client
         continue-on-error: true
 
-      - name: Build and push pure tags - sslocal-rust:[version] (client)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.debian
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: true
-          tags: |
-            ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${{ needs.check-version.outputs.new_version }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${{ needs.check-version.outputs.new_version }}
-          build-args: |
-            VERSION=${{ needs.check-version.outputs.new_version }}
-            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
-            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
-          cache-from: type=gha,scope=pure-sslocal-version
-          cache-to: type=gha,mode=max,scope=pure-sslocal-version
-          target: client
-        continue-on-error: true
-
-      - name: Verify pure tags were pushed
+      - name: Verify pure latest tags were pushed
         run: |
-          echo "Verifying all pure tags were pushed successfully..."
+          echo "Verifying all pure latest tags were pushed successfully..."
           echo ""
           
           VERSION="${{ needs.check-version.outputs.new_version }}"
           
-          # 检查 GHCR 的所有纯标签
-          echo "Checking GHCR pure tags:"
-          echo "========================"
+          # 检查 GHCR 的所有纯 latest 标签
+          echo "Checking GHCR pure latest tags:"
+          echo "================================"
           
           GHCR_TAGS=(
             "${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest"
-            "${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:$VERSION"
             "${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest"
-            "${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:$VERSION"
             "${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest"
-            "${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:$VERSION"
           )
           
           for i in "${!GHCR_TAGS[@]}"; do
@@ -774,19 +151,16 @@ jobs:
             fi
           done
           
-          # 检查 Docker Hub 的所有纯标签（如果启用）
+          # 检查 Docker Hub 的所有纯 latest 标签（如果启用）
           if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
             echo ""
-            echo "Checking Docker Hub pure tags:"
-            echo "=============================="
+            echo "Checking Docker Hub pure latest tags:"
+            echo "======================================"
             
             DOCKERHUB_TAGS=(
               "${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest"
-              "${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:$VERSION"
               "${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest"
-              "${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:$VERSION"
               "${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest"
-              "${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:$VERSION"
             )
             
             for i in "${!DOCKERHUB_TAGS[@]}"; do
@@ -802,25 +176,19 @@ jobs:
           fi
           
           echo ""
-          echo "Summary of pure tags pushed:"
-          echo "============================"
-          echo "These are separate images with only one tag each:"
+          echo "Summary of pure latest tags pushed:"
+          echo "==================================="
+          echo "These are separate images with only 'latest' tag:"
           echo ""
           echo "GHCR:"
           echo "  1. ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest (server-debian)"
-          echo "  2. ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:$VERSION (server-debian)"
-          echo "  3. ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest (server-debian)"
-          echo "  4. ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:$VERSION (server-debian)"
-          echo "  5. ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest (client-debian)"
-          echo "  6. ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:$VERSION (client-debian)"
+          echo "  2. ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest (server-debian)"
+          echo "  3. ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest (client-debian)"
           
           if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
             echo ""
             echo "Docker Hub:"
             echo "  1. ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest (server-debian)"
-            echo "  2. ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:$VERSION (server-debian)"
-            echo "  3. ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest (server-debian)"
-            echo "  4. ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:$VERSION (server-debian)"
-            echo "  5. ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest (client-debian)"
-            echo "  6. ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:$VERSION (client-debian)"
+            echo "  2. ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest (server-debian)"
+            echo "  3. ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest (client-debian)"
           fi
