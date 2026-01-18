@@ -577,7 +577,7 @@ jobs:
           fi
           echo "platforms=$PLATFORMS" >> $GITHUB_OUTPUT
           
-          # 生成 latest 标签列表
+          # 生成 latest 标签列表（仅包含 latest 标签）
           TAGS=""
           
           if [ "$VARIANT" = "server" ]; then
@@ -638,3 +638,5 @@ jobs:
               fi
             fi
           fi
+          
+          # 清理标签列表（去除空行和重复）
