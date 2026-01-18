@@ -1,4 +1,288 @@
-  build-pure-tags:
+name: Build and Push Docker Images
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      debian_version:
+        description: 'Debian version'
+        required: false
+        default: 'stable'
+      force_build:
+        description: 'Force build even if version exists'
+        required: false
+        default: 'false'
+      version:
+        description: 'Shadowsocks-rust version (e.g., v1.17.0, leave empty for latest)'
+        required: false
+        default: ''
+        type: string
+
+env:
+  GHCR_REGISTRY: ghcr.io
+  GHCR_IMAGE_BASE: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.check.outputs.new_version }}
+      should_build: ${{ steps.check.outputs.should_build }}
+      version_source: ${{ steps.check.outputs.version_source }}
+    steps:
+      - name: Check for new release
+        id: check
+        env:
+          ACTIONS_TOKEN: ${{ secrets.ACTIONS_TOKEN }}
+        run: |
+          # ... check-version 脚本内容保持不变 ...
+
+  build-images:
+    needs: check-version
+    if: needs.check-version.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        base: [debian, alpine]
+        variant: [server, client]
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check Docker Hub credentials
+        id: dockerhub
+        run: |
+          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            echo "enabled=true" >> $GITHUB_OUTPUT
+          else
+            echo "enabled=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Log in to Docker Hub
+        if: steps.dockerhub.outputs.enabled == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Prepare tags and platforms
+        id: prepare
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          VERSION="${{ needs.check-version.outputs.new_version }}"
+          VERSION_SOURCE="${{ needs.check-version.outputs.version_source }}"
+          BASE="${{ matrix.base }}"
+          VARIANT="${{ matrix.variant }}"
+          FORCE_BUILD="${{ github.event.inputs.force_build }}"
+          
+          echo "Building version: $VERSION (source: $VERSION_SOURCE, force: $FORCE_BUILD)"
+          
+          # 验证版本号格式
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Invalid version format: $VERSION"
+            exit 1
+          fi
+          
+          # 设置平台
+          if [ "$BASE" = "alpine" ]; then
+            PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7,linux/386"
+          else
+            PLATFORMS="linux/amd64,linux/arm64,linux/arm/v7"
+          fi
+          echo "platforms=$PLATFORMS" >> $GITHUB_OUTPUT
+          
+          # 生成标签列表（包含版本号标签和带变体的latest标签，但不包含纯latest标签）
+          TAGS=""
+          
+          # 根据变体生成不同的标签
+          if [ "$VARIANT" = "server" ]; then
+            # 主仓库标签（shadowsocks-rust）- 版本号标签
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server-${BASE}"
+            
+            # 服务端专用仓库（ssserver-rust）- 版本号标签
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}-${BASE}"
+            
+            # Debian基础镜像的特殊标签（默认指向debian的简写标签）- 版本号标签
+            if [ "$BASE" = "debian" ]; then
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-server
+              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}"
+            fi
+            
+            # 带变体的latest标签
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server-${BASE}
+            ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest-${BASE}"
+            
+            # Debian基础镜像的特殊latest标签（带变体）
+            if [ "$BASE" = "debian" ]; then
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server"
+            fi
+            
+            # Docker Hub标签（如果启用）- 版本号标签
+            if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
+              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server-${BASE}
+              ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}-${BASE}"
+              
+              # Debian基础镜像的特殊标签
+              if [ "$BASE" = "debian" ]; then
+                TAGS="$TAGS
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-server
+                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}"
+              fi
+              
+              # 带变体的latest标签
+              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server-${BASE}
+              ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest-${BASE}"
+              
+              # Debian基础镜像的特殊latest标签（带变体）
+              if [ "$BASE" = "debian" ]; then
+                TAGS="$TAGS
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server"
+              fi
+            fi
+            
+          else # client变体
+            # 主仓库标签（shadowsocks-rust）- 版本号标签
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client-${BASE}
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local-${BASE}"
+            
+            # 客户端专用仓库（sslocal-rust）- 版本号标签
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}-${BASE}"
+            
+            # Debian基础镜像的特殊标签（默认指向debian的简写标签）- 版本号标签
+            if [ "$BASE" = "debian" ]; then
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local
+              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}"
+            fi
+            
+            # 带变体的latest标签
+            TAGS="$TAGS
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client-${BASE}
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local-${BASE}
+            ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest-${BASE}"
+            
+            # Debian基础镜像的特殊latest标签（带变体）
+            if [ "$BASE" = "debian" ]; then
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local"
+            fi
+            
+            # Docker Hub标签（如果启用）- 版本号标签
+            if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
+              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-client-${BASE}
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local-${BASE}
+              ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}-${BASE}"
+              
+              # Debian基础镜像的特殊标签
+              if [ "$BASE" = "debian" ]; then
+                TAGS="$TAGS
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-client
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local
+                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}"
+              fi
+              
+              # 带变体的latest标签
+              TAGS="$TAGS
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client-${BASE}
+              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local-${BASE}
+              ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest-${BASE}"
+              
+              # Debian基础镜像的特殊latest标签（带变体）
+              if [ "$BASE" = "debian" ]; then
+                TAGS="$TAGS
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local"
+              fi
+            fi
+          fi
+          
+          # 清理标签列表（去除空行和重复）
+          TAGS=$(echo "$TAGS" | sed '/^$/d' | sort -u)
+          
+          echo "Generated tags (version and latest variants):"
+          echo "$TAGS"
+          
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAGS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.${{ matrix.base }}
+          platforms: ${{ steps.prepare.outputs.platforms }}
+          push: true
+          tags: ${{ steps.prepare.outputs.tags }}
+          build-args: |
+            VERSION=${{ needs.check-version.outputs.new_version }}
+            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
+            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
+          cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
+          target: ${{ matrix.variant }}
+        continue-on-error: true
+        id: build-push
+
+      - name: Build and push to GHCR only (fallback)
+        if: steps.build-push.outcome == 'failure'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.${{ matrix.base }}
+          platforms: ${{ steps.prepare.outputs.platforms }}
+          push: true
+          tags: |
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${{ needs.check-version.outputs.new_version }}-${{ matrix.variant }}-${{ matrix.base }}
+            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-${{ matrix.variant }}-${{ matrix.base }}
+            ${{ env.GHCR_IMAGE_BASE }}/${{ matrix.variant == 'server' && 'ssserver' || 'sslocal' }}-rust:${{ needs.check-version.outputs.new_version }}-${{ matrix.base }}
+            ${{ env.GHCR_IMAGE_BASE }}/${{ matrix.variant == 'server' && 'ssserver' || 'sslocal' }}-rust:latest-${{ matrix.base }}
+          build-args: |
+            VERSION=${{ needs.check-version.outputs.new_version }}
+            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
+            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
+          cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
+          target: ${{ matrix.variant }}
+
+      - name: Notify about Docker Hub push failure
+        if: steps.build-push.outcome == 'failure'
+        run: |
+          echo "::warning::Failed to push to Docker Hub. Image pushed to GHCR only."
+
+  build-pure-latest-tags:
     needs: [check-version, build-images]
     if: needs.check-version.outputs.should_build == 'true'
     runs-on: ubuntu-latest
