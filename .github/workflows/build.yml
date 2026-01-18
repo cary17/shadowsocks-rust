@@ -403,6 +403,20 @@ jobs:
               ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:${VERSION}"
             fi
             
+            # 自动构建时添加latest标签（非手动或非强制构建）- 除了 latest 本身
+            if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server-${BASE}
+              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest-${BASE}"
+              
+              # Debian基础镜像的特殊latest标签（除了 latest 本身）
+              if [ "$BASE" = "debian" ]; then
+                TAGS="$TAGS
+                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server
+                ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest"
+              fi
+            fi
+            
           else # client变体
             # 主仓库标签（shadowsocks-rust）- client和local标签共存
             # 所有构建都必须有带版本号的标签
@@ -420,6 +434,22 @@ jobs:
               ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-client
               ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:${VERSION}-local
               ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:${VERSION}"
+            fi
+            
+            # 自动构建时添加latest标签（非手动或非强制构建）- 除了 latest 本身
+            if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
+              TAGS="$TAGS
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client-${BASE}
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local-${BASE}
+              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest-${BASE}"
+              
+              # Debian基础镜像的特殊latest标签（除了 latest 本身）
+              if [ "$BASE" = "debian" ]; then
+                TAGS="$TAGS
+                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client
+                ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local
+                ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest"
+              fi
             fi
           fi
           
@@ -442,6 +472,20 @@ jobs:
                 ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:${VERSION}"
               fi
               
+              # 自动构建时添加latest标签（非手动或非强制构建）- 除了 latest 本身
+              if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
+                TAGS="$TAGS
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server-${BASE}
+                ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest-${BASE}"
+                
+                # Debian基础镜像的特殊latest标签（除了 latest 本身）
+                if [ "$BASE" = "debian" ]; then
+                  TAGS="$TAGS
+                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server
+                  ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest"
+                fi
+              fi
+              
             else # client变体
               # Docker Hub主仓库 - 所有构建都必须有带版本号的标签
               TAGS="$TAGS
@@ -459,11 +503,75 @@ jobs:
                 ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:${VERSION}-local
                 ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:${VERSION}"
               fi
+              
+              # 自动构建时添加latest标签（非手动或非强制构建）- 除了 latest 本身
+              if [ "$VERSION_SOURCE" != "manual" ] || [ "$FORCE_BUILD" != "true" ]; then
+                TAGS="$TAGS
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client-${BASE}
+                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local-${BASE}
+                ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest-${BASE}"
+                
+                # Debian基础镜像的特殊latest标签（除了 latest 本身）
+                if [ "$BASE" = "debian" ]; then
+                  TAGS="$TAGS
+                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client
+                  ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local
+                  ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest"
+                fi
+              fi
             fi
           fi
           
           # 清理标签列表（去除空行和重复）
           TAGS=$(echo "$TAGS" | sed '/^$/d' | sort -u)
+          
+          echo "Generated latest tags:"
+          echo "$TAGS"
+          
+          echo "tags<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAGS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Build and push latest tags only
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.${{ matrix.base }}
+          platforms: ${{ steps.prepare.outputs.platforms }}
+          push: true
+          tags: ${{ steps.prepare.outputs.tags }}
+          build-args: |
+            VERSION=${{ needs.check-version.outputs.new_version }}
+            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
+            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
+          cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
+          target: ${{ matrix.variant }}
+        continue-on-error: true
+        id: build-push-latest
+
+      - name: Build and push latest to GHCR only (fallback)
+        if: steps.build-push-latest.outcome == 'failure' && matrix.base == 'debian'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.${{ matrix.base }}
+          platforms: ${{ steps.prepare.outputs.platforms }}
+          push: true
+          tags: |
+            ${{ env.GHCR_IMAGE_BASE }}/${{ matrix.variant == 'server' && 'ssserver' || 'sslocal' }}-rust:latest
+          build-args: |
+            VERSION=${{ needs.check-version.outputs.new_version }}
+            ACTIONS_TOKEN=${{ secrets.ACTIONS_TOKEN }}
+            DEBIAN_VERSION=${{ github.event.inputs.debian_version || '13' }}
+          cache-from: type=gha,scope=${{ matrix.base }}-${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.base }}-${{ matrix.variant }}
+          target: ${{ matrix.variant }}
+
+      - name: Notify about Docker Hub push failure for latest
+        if: steps.build-push-latest.outcome == 'failure'
+        run: |
+          echo "::warning::Failed to push latest tags to Docker Hub. Latest tags pushed to GHCR only."TAGS=$(echo "$TAGS" | sed '/^$/d' | sort -u)
           
           echo "Generated tags:"
           echo "$TAGS"
@@ -516,8 +624,8 @@ jobs:
 
   build-latest-images:
     needs: [check-version, build-images]
-    # 仅在自动构建时推送 latest 标签（非手动或非强制构建）
-    if: needs.check-version.outputs.should_build == 'true' && (needs.check-version.outputs.version_source != 'manual' || github.event.inputs.force_build != 'true')
+    # 所有构建都推送 latest 标签
+    if: needs.check-version.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -577,63 +685,30 @@ jobs:
           fi
           echo "platforms=$PLATFORMS" >> $GITHUB_OUTPUT
           
-          # 生成 latest 标签列表（仅包含 latest 标签）
+          # 生成 latest 标签列表（每个仓库只有一个 latest 标签）
+          # 只有 Debian server 变体推送 latest 标签
           TAGS=""
           
-          if [ "$VARIANT" = "server" ]; then
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server-${BASE}
-            ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest-${BASE}"
-            
-            # Debian基础镜像的特殊latest标签
-            if [ "$BASE" = "debian" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-server
-              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest"
-            fi
-            
-          else # client变体
-            TAGS="$TAGS
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client-${BASE}
-            ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local-${BASE}
-            ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest-${BASE}"
-            
-            # Debian基础镜像的特殊latest标签
-            if [ "$BASE" = "debian" ]; then
-              TAGS="$TAGS
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-client
-              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest-local
-              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest"
-            fi
-          fi
-          
-          # Docker Hub标签（如果启用）
-          if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
+          if [ "$BASE" = "debian" ]; then
             if [ "$VARIANT" = "server" ]; then
               TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest-${BASE}"
+              ${{ env.GHCR_IMAGE_BASE }}/shadowsocks-rust:latest
+              ${{ env.GHCR_IMAGE_BASE }}/ssserver-rust:latest"
               
-              # Debian基础镜像的特殊latest标签
-              if [ "$BASE" = "debian" ]; then
+              # Docker Hub标签（如果启用）
+              if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
                 TAGS="$TAGS
                 ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-server
                 ${{ secrets.DOCKERHUB_USERNAME }}/ssserver-rust:latest"
               fi
               
             else # client变体
               TAGS="$TAGS
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local-${BASE}
-              ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest-${BASE}"
+              ${{ env.GHCR_IMAGE_BASE }}/sslocal-rust:latest"
               
-              # Debian基础镜像的特殊latest标签
-              if [ "$BASE" = "debian" ]; then
+              # Docker Hub标签（如果启用）
+              if [ "${{ steps.dockerhub.outputs.enabled }}" = "true" ]; then
                 TAGS="$TAGS
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-client
-                ${{ secrets.DOCKERHUB_USERNAME }}/shadowsocks-rust:latest-local
                 ${{ secrets.DOCKERHUB_USERNAME }}/sslocal-rust:latest"
               fi
             fi
